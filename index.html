@@ -4,17 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KP–1</title>
-<!--
-  KP–1 — the recent past as a cube you can press into.
-
-  Single file. No dependencies, no build step. Open it in a browser.
-  Shell and GL pipeline carried from CT–1 contort.
-  Milestone 1: cube only, classical displacement map.
--->
+<!-- KP–1 — the recent past as a cube you can press into. Rationale in KP-1.md. -->
 <style>
-/* ============================================================
-   tokens — carried from CT–1
-   ============================================================ */
+/* tokens — carried from CT–1 */
 :root{
   --accent:#ED6B1F;
   --accent-deep:#C4491A;
@@ -143,7 +135,7 @@ body{
 }
 .note{font-size:9.5px; line-height:1.7; color:var(--ink-3); margin-top:calc(var(--u)*3)}
 
-/* knob — value is the pointer's position, as on a real one */
+/* knob */
 .knobs{display:grid; grid-template-columns:repeat(3,1fr); gap:calc(var(--u)*3) calc(var(--u)*2)}
 .knobwrap{display:flex; flex-direction:column; align-items:center; gap:calc(var(--u)*1.5)}
 .knob{
@@ -333,14 +325,10 @@ body.bleed .screen{box-shadow:none}
 </div>
 
 <script>
-/* ------------------------------------------------------------------ *
- *  KP–1 — milestone 1
- *  Webcam into a ring of N frames held as one 3D texture. Each pixel
- *  samples the cube d frames behind the present, d from a map.
- * ------------------------------------------------------------------ */
+/* KP–1 milestone 1 — webcam ring in a 3D texture, sampled d frames behind the present */
 
 const N = 128;                                   // frames held in the cube
-const SIZES = [[320,180], [240,135], [160,90]];  // target first, then fallbacks; N is never cut
+const SIZES = [[320,180], [240,135], [160,90]];  // target, then fallbacks; N fixed
 const MAP = 16;                                  // displacement cells per side, 2^4 × 2^4
 
 const QVERT = `#version 300 es
@@ -380,7 +368,7 @@ void main(){
   vec2 uv = (vUV - 0.5) / uFit + 0.5;
   if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0){ frag = vec4(0.0,0.0,0.0,1.0); return; }
   float d = clamp(texture(uMap, uv).r, 0.0, max(0.0, min(uN, uFill) - 1.0));
-  float z = (uHead - d + 0.5) / uN;                  // wrap R repeats, so the ring seam filters
+  float z = (uHead - d + 0.5) / uN;                  // ring index; wrap R is REPEAT
   vec3 c = texture(uCube, vec3(uv, z)).rgb;
   if(uShowMap > 0.5) c = mix(c, vec3(0.93, 0.42, 0.12), 0.65 * d / (uN - 1.0));
   frag = vec4(c, 1.0);
@@ -430,7 +418,7 @@ function drawQuad(){
 const cube = { tex:null, w:0, h:0, fb: gl.createFramebuffer(), head:-1, fill:0, bytes:0, target:false, why:'' };
 const MAX3D = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
 
-// allocate, clear every layer, and read back the deepest one to prove it is backed
+// allocate, clear every layer, read back the deepest
 function tryCube(w, h){
   if(w > MAX3D || h > MAX3D || N > MAX3D) return 'exceeds MAX_3D_TEXTURE_SIZE ' + MAX3D;
   while(gl.getError());
