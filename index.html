@@ -322,6 +322,11 @@ body.bleed .screen{box-shadow:none}
                data-hint="animated grain over the frame, strongest in the midtones"></div>
           <div class="dial" data-ctl="knob" data-k="size"  data-min="1" data-max="4" data-step="0.1" data-def="1.5" data-dp="1"
                data-hint="grain size in screen points"></div>
+          <div class="dial" data-ctl="knob" data-k="theta" data-min="0" data-max="1" data-step="0.005" data-def="0.08"
+               data-hint="rx angle on every qubit, in units of pi; 0.5 spreads fully, 1 flips every bit"></div>
+        </div>
+        <div class="row" style="margin-top:calc(var(--u)*4)">
+          <button class="key" id="qblur" aria-pressed="false"><i class="lamp" id="qlamp"></i>quantum blur</button>
         </div>
       </div>
 
@@ -341,6 +346,7 @@ body.bleed .screen{box-shadow:none}
     <span><b>drag</b> press into the past</span>
     <span><b>c</b> clear map</span>
     <span><b>h</b> hand motion</span>
+    <span><b>q</b> quantum blur</span>
     <span><b>m</b> show map</span>
     <span><b>f</b> full bleed</span>
     <span class="right"><span id="statusline"></span><i class="lamp" id="lamp"></i></span>
@@ -391,13 +397,15 @@ uniform vec2  uFit;        // letterbox scale
 uniform float uGrain;
 uniform float uGrainPx;    // grain cell in device pixels
 uniform float uTime;
+uniform sampler2D uQBTex;  // quantum blur readout
+uniform float uQB;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
 void main(){
   vec2 uv = (vUV - 0.5) / uFit + 0.5;
   if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0){ frag = vec4(0.0,0.0,0.0,1.0); return; }
   float d = clamp(texture(uMap, uv).r, 0.0, max(0.0, min(uN, uFill) - 1.0));
   float z = (uHead - d + 0.5) / uN;                  // ring index; wrap R is REPEAT
-  vec3 c = texture(uCube, vec3(uv, z)).rgb;
+  vec3 c = uQB > 0.5 ? texture(uQBTex, uv).rgb : texture(uCube, vec3(uv, z)).rgb;
   if(uShowMap > 0.5) c = mix(c, vec3(0.93, 0.42, 0.12), 0.65 * d / (uN - 1.0));
   if(uGrain > 0.001){                                // grain, as CT–1's final pass
     vec2 jit = vec2(fract(uTime*7.13), fract(uTime*4.31)) * 91.0;
@@ -432,12 +440,12 @@ function program(vs, fs, names){
   return {p, u};
 }
 const cprog = program(QVERT, CFRAG, ['uSrc','uScale','uMirror']);
-const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit','uGrain','uGrainPx','uTime']);
+const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit','uGrain','uGrainPx','uTime','uQBTex','uQB']);
 
 const quadVAO = gl.createVertexArray();
 gl.bindVertexArray(quadVAO);
-const qb = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
 gl.enableVertexAttribArray(0);
 gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -737,6 +745,132 @@ function senseMotion(){
 
 document.getElementById('motion').onclick = () => motion.on ? stopMotion() : startMotion();
 
+/* ---------- quantum blur: frame as a statevector, rx on every qubit, probabilities back out ---------- */
+const QB_W = 256, QB_H = 144;                    // simulated frame size
+const QB_BITS = Math.ceil(Math.log2(Math.max(QB_W, QB_H)));   // bits per axis, grid padded to 2^bits
+const QB_N = 2 * QB_BITS;                        // qubits
+
+// the engine: self-contained so it can run in a worker or inline
+function qbEngine(W, H, BITS){
+  const NQ = 2 * BITS, SIZE = 1 << NQ, n = W * H;
+  const re = new Float32Array(SIZE), im = new Float32Array(SIZE), idx = new Uint32Array(n);
+  // pixel → basis index: gray-coded x and y, interleaved x_k y_k with y0 the lowest bit
+  for(let y = 0; y < H; y++) for(let x = 0; x < W; x++){
+    const gx = x ^ (x >> 1), gy = y ^ (y >> 1);
+    let k = 0;
+    for(let b = 0; b < BITS; b++) k |= (((gy >> b) & 1) << (2*b)) | (((gx >> b) & 1) << (2*b + 1));
+    idx[y * W + x] = k;
+  }
+  // rx(theta) on qubit q
+  function rx(q, c, s){
+    const bit = 1 << q;
+    for(let i = 0; i < SIZE; i++){
+      if(i & bit) continue;
+      const j = i | bit;
+      const ar = re[i], ai = im[i], br = re[j], bi = im[j];
+      re[i] = c*ar + s*bi; im[i] = c*ai - s*br;
+      re[j] = c*br + s*ai; im[j] = c*bi - s*ar;
+    }
+  }
+  // per channel: amplitudes = sqrt(intensity), rotate every qubit, probabilities scaled so the brightest pixel is 1
+  return function blur(px, theta){
+    const out = new Uint8Array(n * 4);
+    const c = Math.cos(theta * Math.PI / 2), s = Math.sin(theta * Math.PI / 2);
+    for(let ch = 0; ch < 3; ch++){
+      re.fill(0); im.fill(0);
+      for(let p = 0; p < n; p++) re[idx[p]] = Math.sqrt(px[p*4 + ch] / 255);
+      for(let q = 0; q < NQ; q++) rx(q, c, s);
+      let max = 0;
+      for(let p = 0; p < n; p++){ const k = idx[p], pr = re[k]*re[k] + im[k]*im[k]; re[k] = pr; if(pr > max) max = pr; }
+      const g = max > 0 ? 255 / max : 0;
+      for(let p = 0; p < n; p++) out[p*4 + ch] = re[idx[p]] * g;
+    }
+    for(let p = 0; p < n; p++) out[p*4 + 3] = 255;
+    return out;
+  };
+}
+
+const qb = { on:false, ms:0, theta:-1, dirty:false, busy:false, ready:false, result:null, worker:null, inline:null };
+try {
+  const code = `const blur = (${qbEngine})(${QB_W}, ${QB_H}, ${QB_BITS});
+onmessage = e => { const t0 = performance.now(); const out = blur(new Uint8Array(e.data.px), e.data.theta);
+  postMessage({out: out.buffer, ms: performance.now() - t0}, [out.buffer]); };`;
+  qb.worker = new Worker(URL.createObjectURL(new Blob([code], {type:'text/javascript'})));
+  qb.worker.onmessage = e => {
+    qb.result = new Uint8Array(e.data.out); qb.ms += (e.data.ms - qb.ms) * 0.2; qb.busy = false;
+  };
+  qb.worker.onerror = () => { qb.worker = null; qb.busy = false; };
+} catch(err){ qb.worker = null; }
+
+function makeRT(w, h){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fb = gl.createFramebuffer();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  return {tex:t, fb};
+}
+const qbIn = makeRT(QB_W, QB_H);
+const qbOut = makeRT(QB_W, QB_H);
+
+// read the sheared frame back and hand it to the engine; one frame in flight
+function sendQBlur(now){
+  drawDisplay(qbIn.fb, QB_W, QB_H, now, false);
+  const px = new Uint8Array(QB_W * QB_H * 4);
+  gl.readPixels(0, 0, QB_W, QB_H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  qb.dirty = false;
+  if(qb.worker){
+    qb.busy = true;
+    qb.worker.postMessage({px: px.buffer, theta: qb.theta}, [px.buffer]);
+  } else {
+    qb.inline ??= qbEngine(QB_W, QB_H, QB_BITS);
+    const t0 = performance.now();
+    qb.result = qb.inline(px, qb.theta);
+    qb.ms += (performance.now() - t0 - qb.ms) * 0.2;
+  }
+}
+
+function setQBlur(on){
+  qb.on = on; qb.theta = -1; qb.ready = false; qb.result = null;
+  document.getElementById('qblur').setAttribute('aria-pressed', String(on));
+  document.getElementById('qlamp').classList.toggle('is-on', on);
+}
+document.getElementById('qblur').onclick = () => setQBlur(!qb.on);
+
+// sheared frame through the display shader into a target, or to the screen
+function drawDisplay(fb, w, h, now, final){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  gl.viewport(0, 0, w, h);
+  gl.useProgram(dprog.p);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_3D, cube.tex);
+  gl.uniform1i(dprog.u.uCube, 0);
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, mapTex);
+  gl.uniform1i(dprog.u.uMap, 1);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, qbOut.tex);
+  gl.uniform1i(dprog.u.uQBTex, 2);
+  gl.uniform1f(dprog.u.uQB, final && qb.on && qb.ready ? 1 : 0);
+  gl.uniform1f(dprog.u.uShowMap, final && showMap ? 1 : 0);
+  gl.uniform1f(dprog.u.uGrain, final ? val('grain') : 0);
+  gl.uniform1f(dprog.u.uGrainPx, Math.max(1, val('size') * devicePixelRatio));
+  gl.uniform1f(dprog.u.uTime, now / 1000);
+  gl.uniform1f(dprog.u.uHead, cube.head);
+  gl.uniform1f(dprog.u.uN, N);
+  gl.uniform1f(dprog.u.uFill, cube.fill);
+  const ca = w / h, ta = cube.w / cube.h;
+  if(final) gl.uniform2f(dprog.u.uFit, ca > ta ? ta/ca : 1, ca > ta ? 1 : ca/ta);
+  else gl.uniform2f(dprog.u.uFit, 1, 1);
+  drawQuad();
+}
+
 /* ---------- frame ---------- */
 const meter = { cap:0, frames:0, t0:performance.now(), fps:0, capfps:0 };
 let last = performance.now();
@@ -746,7 +880,8 @@ function frame(now){
   const w = Math.round(cv.clientWidth * devicePixelRatio), h = Math.round(cv.clientHeight * devicePixelRatio);
   if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
 
-  if(src && fresh && cube.tex){ fresh = false; capture(); }
+  const captured = !!(src && fresh && cube.tex);
+  if(captured){ fresh = false; capture(); }
   if(motion.on && motion.fresh && cube.tex){ motion.fresh = false; senseMotion(); }
   stepMap(dt);
 
@@ -754,23 +889,16 @@ function frame(now){
   gl.clearColor(0,0,0,1);
   gl.clear(gl.COLOR_BUFFER_BIT);
   if(src && cube.fill > 0){
-    gl.useProgram(dprog.p);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_3D, cube.tex);
-    gl.uniform1i(dprog.u.uCube, 0);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, mapTex);
-    gl.uniform1i(dprog.u.uMap, 1);
-    gl.uniform1f(dprog.u.uShowMap, showMap ? 1 : 0);
-    gl.uniform1f(dprog.u.uGrain, val('grain'));
-    gl.uniform1f(dprog.u.uGrainPx, Math.max(1, val('size') * devicePixelRatio));
-    gl.uniform1f(dprog.u.uTime, now / 1000);
-    gl.uniform1f(dprog.u.uHead, cube.head);
-    gl.uniform1f(dprog.u.uN, N);
-    gl.uniform1f(dprog.u.uFill, cube.fill);
-    const ca = cv.width / cv.height, ta = cube.w / cube.h;
-    gl.uniform2f(dprog.u.uFit, ca > ta ? ta/ca : 1, ca > ta ? 1 : ca/ta);
-    drawQuad();
+    if(qb.on){
+      if(captured || qb.theta !== val('theta')){ qb.theta = val('theta'); qb.dirty = true; }
+      if(qb.result){
+        gl.bindTexture(gl.TEXTURE_2D, qbOut.tex);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, QB_W, QB_H, gl.RGBA, gl.UNSIGNED_BYTE, qb.result);
+        qb.result = null; qb.ready = true;
+      }
+      if(qb.dirty && !qb.busy) sendQBlur(now);
+    }
+    drawDisplay(null, cv.width, cv.height, now, true);
   }
 
   meter.frames++;
@@ -868,6 +996,7 @@ addEventListener('keydown', e => {
   if(e.key === 'c'){ dmap.fill(0); }
   if(e.key === 'm'){ showMap = !showMap; }
   if(e.key === 'h'){ motion.on ? stopMotion() : startMotion(); }
+  if(e.key === 'q'){ setQBlur(!qb.on); }
   if(e.key === 'Escape'){ document.body.classList.remove('bleed'); }
 });
 
@@ -914,6 +1043,7 @@ function drawReadout(){
       rowHTML('display', meter.fps.toFixed(0) + ' fps') +
       rowHTML('capture', meter.capfps.toFixed(0) + ' fps') +
       rowHTML('motion', motion.on ? 'on \u00b7 ' + motion.peak.toFixed(2) : 'off') +
+      rowHTML('quantum blur', qb.on ? `${QB_N} qubits \u00b7 ${qb.ms.toFixed(1)} ms${qb.worker ? '' : ' inline'}` : 'off') +
       rowHTML('max 3d', MAX3D) +
       (cube.why ? `<div class="note">${cube.why}</div>` : '') +
       `<div class="note">${glInfo}</div>`
