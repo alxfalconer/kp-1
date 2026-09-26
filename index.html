@@ -210,6 +210,7 @@ body{
 canvas{display:block; width:100%; height:100%; background:var(--win); cursor:crosshair; touch-action:none}
 
 .col{display:grid; grid-template-rows:auto auto 1fr; min-height:0; background:var(--rule); gap:var(--hair)}
+.readout{overflow-y:auto}
 .readout .ctl-l{margin-bottom:calc(var(--u)*1.75)}
 .readout .ctl-l.warn b{color:var(--accent)}
 
@@ -310,6 +311,7 @@ body.bleed .screen{box-shadow:none}
         </div>
         <div class="row" style="margin-top:calc(var(--u)*4)">
           <button class="key" id="motion" aria-pressed="false"><i class="lamp" id="mlamp"></i>hand motion</button>
+          <button class="key" id="htime" aria-pressed="true"><i class="lamp is-on" id="htlamp"></i>hands press time</button>
         </div>
         <div class="note">drag on the display, or move in front of the camera, to press it into the past &middot; it relaxes back to the present.
           knobs: drag vertically &middot; shift for fine &middot; double-click resets.</div>
@@ -325,8 +327,13 @@ body.bleed .screen{box-shadow:none}
           <div class="dial" data-ctl="knob" data-k="theta" data-min="0" data-max="1" data-step="0.005" data-def="0.08"
                data-hint="rx angle on every qubit, in units of pi; 0.5 spreads fully, 1 flips every bit"></div>
         </div>
-        <div class="row" style="margin-top:calc(var(--u)*4)">
-          <button class="key" id="qblur" aria-pressed="false"><i class="lamp" id="qlamp"></i>quantum blur</button>
+        <div class="ctl" style="margin-top:calc(var(--u)*4)">
+          <div class="ctl-l"><span>quantum blur</span><i class="lamp" id="qlamp"></i></div>
+          <div class="switch" id="qbmode" style="margin-top:5px">
+            <button data-m="off" aria-pressed="true">off</button>
+            <button data-m="frame" aria-pressed="false">whole frame</button>
+            <button data-m="hands" aria-pressed="false">hands</button>
+          </div>
         </div>
       </div>
 
@@ -399,13 +406,19 @@ uniform float uGrainPx;    // grain cell in device pixels
 uniform float uTime;
 uniform sampler2D uQBTex;  // quantum blur readout
 uniform float uQB;
+uniform sampler2D uBMask;  // where hands have moved, 0..1
+uniform float uBMode;      // 0 whole frame · 1 masked by hands
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
 void main(){
   vec2 uv = (vUV - 0.5) / uFit + 0.5;
   if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0){ frag = vec4(0.0,0.0,0.0,1.0); return; }
   float d = clamp(texture(uMap, uv).r, 0.0, max(0.0, min(uN, uFill) - 1.0));
   float z = (uHead - d + 0.5) / uN;                  // ring index; wrap R is REPEAT
-  vec3 c = uQB > 0.5 ? texture(uQBTex, uv).rgb : texture(uCube, vec3(uv, z)).rgb;
+  vec3 c = texture(uCube, vec3(uv, z)).rgb;
+  if(uQB > 0.5){
+    float m = uBMode > 0.5 ? clamp(texture(uBMask, uv).r * 1.5, 0.0, 1.0) : 1.0;
+    c = mix(c, texture(uQBTex, uv).rgb, m);
+  }
   if(uShowMap > 0.5) c = mix(c, vec3(0.93, 0.42, 0.12), 0.65 * d / (uN - 1.0));
   if(uGrain > 0.001){                                // grain, as CT–1's final pass
     vec2 jit = vec2(fract(uTime*7.13), fract(uTime*4.31)) * 91.0;
@@ -440,7 +453,7 @@ function program(vs, fs, names){
   return {p, u};
 }
 const cprog = program(QVERT, CFRAG, ['uSrc','uScale','uMirror']);
-const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit','uGrain','uGrainPx','uTime','uQBTex','uQB']);
+const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit','uGrain','uGrainPx','uTime','uQBTex','uQB','uBMask','uBMode']);
 
 const quadVAO = gl.createVertexArray();
 gl.bindVertexArray(quadVAO);
@@ -623,6 +636,16 @@ gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+const bmask = new Float32Array(MAP*MAP);         // quantum blur mask from hand motion, same cells as dmap
+const bmaskTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, bmaskTex);
+gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16F, MAP, MAP);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+let bpeak = 0;
+
 const press = { down:false, u:0, v:0 };
 let showMap = false;
 
@@ -639,12 +662,21 @@ function stepMap(dt){
       dmap[i] = Math.max(dmap[i], depth * Math.exp(-(dx*dx + dy*dy) * inv));
     }
   }
-  if(motion.on){
+  if(motion.on && motion.time){
     const depth = val('depth');
     for(let i = 0; i < dmap.length; i++) dmap[i] = Math.max(dmap[i], depth * motion.level[i]);
   }
   gl.bindTexture(gl.TEXTURE_2D, mapTex);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP, MAP, gl.RED, gl.FLOAT, dmap);
+
+  bpeak = 0;
+  const feed = motion.on && qb.mode === 'hands';
+  for(let i = 0; i < bmask.length; i++){
+    bmask[i] = feed ? Math.max(bmask[i] * k, motion.level[i]) : bmask[i] * k;
+    if(bmask[i] > bpeak) bpeak = bmask[i];
+  }
+  gl.bindTexture(gl.TEXTURE_2D, bmaskTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP, MAP, gl.RED, gl.FLOAT, bmask);
 }
 
 // pointer in cube uv, y up, through the letterbox
@@ -696,6 +728,13 @@ function stopMotion(){
   motion.level.fill(0);
   updateMotion();
 }
+
+motion.time = true;
+document.getElementById('htime').onclick = () => {
+  motion.time = !motion.time;
+  document.getElementById('htime').setAttribute('aria-pressed', String(motion.time));
+  document.getElementById('htlamp').classList.toggle('is-on', motion.time);
+};
 
 function updateMotion(){
   document.body.classList.toggle('motion', motion.on);
@@ -790,7 +829,7 @@ function qbEngine(W, H, BITS){
   };
 }
 
-const qb = { on:false, ms:0, theta:-1, dirty:false, busy:false, ready:false, result:null, worker:null, inline:null };
+const qb = { mode:'off', on:false, ms:0, theta:-1, dirty:false, busy:false, ready:false, result:null, worker:null, inline:null };
 try {
   const code = `const blur = (${qbEngine})(${QB_W}, ${QB_H}, ${QB_BITS});
 onmessage = e => { const t0 = performance.now(); const out = blur(new Uint8Array(e.data.px), e.data.theta);
@@ -836,12 +875,18 @@ function sendQBlur(now){
   }
 }
 
-function setQBlur(on){
-  qb.on = on; qb.theta = -1; qb.ready = false; qb.result = null;
-  document.getElementById('qblur').setAttribute('aria-pressed', String(on));
-  document.getElementById('qlamp').classList.toggle('is-on', on);
+const QB_MODES = ['off', 'frame', 'hands'];
+function setQBMode(mode){
+  qb.mode = mode; qb.on = mode !== 'off';
+  qb.theta = -1; qb.ready = false; qb.result = null;
+  document.querySelectorAll('#qbmode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === mode)));
+  document.getElementById('qlamp').classList.toggle('is-on', qb.on);
+  if(mode === 'hands' && !motion.on) startMotion();
 }
-document.getElementById('qblur').onclick = () => setQBlur(!qb.on);
+document.getElementById('qbmode').addEventListener('click', e => {
+  const b = e.target.closest('button[data-m]');
+  if(b) setQBMode(b.dataset.m);
+});
 
 // sheared frame through the display shader into a target, or to the screen
 function drawDisplay(fb, w, h, now, final){
@@ -857,6 +902,10 @@ function drawDisplay(fb, w, h, now, final){
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, qbOut.tex);
   gl.uniform1i(dprog.u.uQBTex, 2);
+  gl.activeTexture(gl.TEXTURE3);
+  gl.bindTexture(gl.TEXTURE_2D, bmaskTex);
+  gl.uniform1i(dprog.u.uBMask, 3);
+  gl.uniform1f(dprog.u.uBMode, qb.mode === 'hands' ? 1 : 0);
   gl.uniform1f(dprog.u.uQB, final && qb.on && qb.ready ? 1 : 0);
   gl.uniform1f(dprog.u.uShowMap, final && showMap ? 1 : 0);
   gl.uniform1f(dprog.u.uGrain, final ? val('grain') : 0);
@@ -896,7 +945,7 @@ function frame(now){
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, QB_W, QB_H, gl.RGBA, gl.UNSIGNED_BYTE, qb.result);
         qb.result = null; qb.ready = true;
       }
-      if(qb.dirty && !qb.busy) sendQBlur(now);
+      if(qb.dirty && !qb.busy && (qb.mode === 'frame' || bpeak > 0.01)) sendQBlur(now);
     }
     drawDisplay(null, cv.width, cv.height, now, true);
   }
@@ -996,7 +1045,7 @@ addEventListener('keydown', e => {
   if(e.key === 'c'){ dmap.fill(0); }
   if(e.key === 'm'){ showMap = !showMap; }
   if(e.key === 'h'){ motion.on ? stopMotion() : startMotion(); }
-  if(e.key === 'q'){ setQBlur(!qb.on); }
+  if(e.key === 'q'){ setQBMode(QB_MODES[(QB_MODES.indexOf(qb.mode) + 1) % QB_MODES.length]); }
   if(e.key === 'Escape'){ document.body.classList.remove('bleed'); }
 });
 
@@ -1043,7 +1092,7 @@ function drawReadout(){
       rowHTML('display', meter.fps.toFixed(0) + ' fps') +
       rowHTML('capture', meter.capfps.toFixed(0) + ' fps') +
       rowHTML('motion', motion.on ? 'on \u00b7 ' + motion.peak.toFixed(2) : 'off') +
-      rowHTML('quantum blur', qb.on ? `${QB_N} qubits \u00b7 ${qb.ms.toFixed(1)} ms${qb.worker ? '' : ' inline'}` : 'off') +
+      rowHTML('quantum blur', qb.on ? `${qb.mode === 'hands' ? 'hands' : 'frame'} \u00b7 ${QB_N} qubits \u00b7 ${qb.ms.toFixed(1)} ms${qb.worker ? '' : ' inline'}` : 'off') +
       rowHTML('max 3d', MAX3D) +
       (cube.why ? `<div class="note">${cube.why}</div>` : '') +
       `<div class="note">${glInfo}</div>`
