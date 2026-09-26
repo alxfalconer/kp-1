@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en" data-skin="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KP–1</title>
+<!-- KP–1 — the recent past as a cube you can press into. Rationale in KP-1.md. -->
+<style>
+/* tokens — carried from CT–1 */
+:root{
+  --accent:#ED6B1F;
+  --accent-deep:#C4491A;
+  --accent-red:#BF1B1B;
+
+  --r-key:5px;
+  --r-tile:2px;
+  --r-body:14px;
+  --u:4px;
+  --hair:1px;
+
+  --sans:"Helvetica Neue",Helvetica,Inter,-apple-system,"Segoe UI",Arial,sans-serif;
+  --mono:"Berkeley Mono","BerkeleyMono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+
+  --t-label:10px;
+  --t-body:12px;
+  --t-value:11px;
+  --t-mark:16px;
+  --ls-label:.02em;
+}
+
+/* light — the default */
+:root,[data-skin="light"]{
+  --page:#DEDCD5;
+  --body:#EFEEE9;
+  --body-hi:#F8F7F4;
+  --body-lo:#E4E2DC;
+  --rule:#D3D1C9;
+
+  --key:#F4F3EF;
+  --key-lo:#E6E4DE;
+  --slot:#D8D6CE;
+
+  --ink:#22211E;
+  --ink-2:#605E58;
+  --ink-3:#95938B;
+
+  --win:#141413;
+  --win-ink:#F2F2EE;
+  --win-dim:#6E6E68;
+
+  --lamp-off:#CBC9C1;
+
+  --raise:0 1px 1px rgba(40,38,32,.14), 0 2px 5px rgba(40,38,32,.07),
+          inset 0 1px 0 rgba(255,255,255,.95);
+  --raise-lo:0 1px 1px rgba(40,38,32,.12), inset 0 1px 0 rgba(255,255,255,.8);
+  --press:inset 0 2px 4px rgba(40,38,32,.22);
+  --recess:inset 0 2px 3px rgba(40,38,32,.20), inset 0 -1px 0 rgba(255,255,255,.7);
+  --panel:0 1px 0 rgba(255,255,255,.7) inset;
+}
+
+/* dark — for projection */
+[data-skin="dark"]{
+  --page:#131311;
+  --body:#1F1F1D;
+  --body-hi:#2A2A27;
+  --body-lo:#191917;
+  --rule:#323230;
+
+  --key:#2C2C29;
+  --key-lo:#242422;
+  --slot:#141413;
+
+  --ink:#EAE9E4;
+  --ink-2:#9B998F;
+  --ink-3:#6E6C64;
+
+  --win:#0B0B0A;
+  --win-ink:#F2F2EE;
+  --win-dim:#6E6E68;
+
+  --lamp-off:#3A3A36;
+
+  --raise:0 1px 2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
+  --raise-lo:0 1px 1px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
+  --press:inset 0 2px 4px rgba(0,0,0,.6);
+  --recess:inset 0 2px 4px rgba(0,0,0,.6), inset 0 -1px 0 rgba(255,255,255,.05);
+  --panel:none;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--page); color:var(--ink);
+  font-family:var(--sans); font-size:var(--t-body); line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+  padding:calc(var(--u)*4); overflow:hidden;
+}
+
+/* ---- the object ---- */
+.device{
+  background:var(--body); border-radius:var(--r-body); overflow:hidden;
+  box-shadow:0 1px 0 rgba(255,255,255,.7) inset,
+             0 2px 4px rgba(40,38,32,.10),
+             0 24px 50px -24px rgba(40,38,32,.32);
+  height:100%; display:grid; grid-template-rows:auto 1fr auto; min-height:0;
+}
+
+.brow{
+  display:flex; align-items:center; gap:calc(var(--u)*4);
+  padding:calc(var(--u)*3) calc(var(--u)*5);
+  border-bottom:var(--hair) solid var(--rule);
+}
+.mark{font-size:var(--t-mark); letter-spacing:.01em; font-weight:500}
+.sub{
+  font-family:var(--mono); font-size:9px; color:var(--ink-3);
+  letter-spacing:.04em; margin-left:auto; text-align:right; line-height:1.55;
+}
+
+.tile{background:var(--body); padding:calc(var(--u)*4) calc(var(--u)*5) calc(var(--u)*5); min-height:0}
+.tile h2{
+  display:flex; justify-content:space-between; align-items:baseline;
+  font-size:var(--t-label); font-weight:400; letter-spacing:.14em;
+  color:var(--ink-2); margin-bottom:calc(var(--u)*3.5);
+}
+.tile h2 em{font-style:normal; color:var(--ink-3); letter-spacing:.02em}
+
+/* ---- controls ---- */
+.ctl{margin-bottom:calc(var(--u)*3)}
+.ctl:last-child{margin-bottom:0}
+.ctl-l{display:flex; justify-content:space-between; align-items:baseline; gap:calc(var(--u)*2.5)}
+.ctl-l span{font-size:11px; color:var(--ink)}
+.ctl-l b{
+  font-family:var(--mono); font-size:var(--t-value); font-weight:400;
+  color:var(--ink-2); font-variant-numeric:tabular-nums;
+}
+.note{font-size:9.5px; line-height:1.7; color:var(--ink-3); margin-top:calc(var(--u)*3)}
+
+/* knob */
+.knobs{display:grid; grid-template-columns:repeat(4,1fr); gap:calc(var(--u)*3) calc(var(--u)*2)}
+.knobwrap{display:flex; flex-direction:column; align-items:center; gap:calc(var(--u)*1.5)}
+.knob{
+  --angle:0deg; --sweep:0deg;
+  width:56px; height:56px; border-radius:50%; position:relative; flex:none;
+  cursor:ns-resize; touch-action:none;
+  background:conic-gradient(from 225deg, var(--ink-3) 0 var(--sweep), var(--slot) var(--sweep) 270deg, transparent 270deg);
+  padding:4px;
+}
+.knob i{
+  display:block; width:100%; height:100%; border-radius:50%;
+  background:var(--key); box-shadow:var(--raise); position:relative;
+}
+.knob i::after{
+  content:""; position:absolute; left:50%; top:5px;
+  width:5px; height:5px; margin-left:-2.5px; border-radius:50%;
+  background:var(--accent);
+  transform-origin:50% 19px; transform:rotate(var(--angle));
+}
+.knob:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+.knobwrap span{font-size:9.5px; color:var(--ink-2); letter-spacing:var(--ls-label)}
+.knobwrap b{
+  font-family:var(--mono); font-size:10px; font-weight:400; color:var(--ink-3);
+  font-variant-numeric:tabular-nums;
+}
+
+/* key — moulded, presses in */
+.key{
+  font-family:var(--sans); font-size:var(--t-label);
+  letter-spacing:var(--ls-label); color:var(--ink);
+  background:var(--key); border:0; border-radius:var(--r-key);
+  padding:calc(var(--u)*2.25) calc(var(--u)*2.5); cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center; gap:calc(var(--u)*1.5);
+  box-shadow:var(--raise);
+  transition:box-shadow .09s, transform .05s, background .09s;
+}
+.key:hover{background:var(--body-hi)}
+.key:active{box-shadow:var(--press); transform:translateY(1px); background:var(--key-lo)}
+.key:disabled{opacity:.4; cursor:not-allowed; box-shadow:var(--raise-lo)}
+.key:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.row{display:flex; gap:calc(var(--u)*2)}
+.row > *{flex:1}
+
+.lamp{
+  width:8px; height:8px; border-radius:50%; flex:none;
+  background:var(--lamp-off); box-shadow:var(--recess);
+  transition:background .5s ease, box-shadow .5s ease;
+}
+.lamp.is-on{
+  background:var(--accent); box-shadow:0 0 6px rgba(237,107,31,.6); transition:none;
+}
+
+/* switch — a recessed well with a raised active segment */
+.switch{
+  display:flex; background:var(--slot); border-radius:var(--r-key);
+  padding:2px; box-shadow:var(--recess); gap:2px;
+}
+.switch button{
+  flex:1; font-family:var(--sans); font-size:var(--t-label); letter-spacing:var(--ls-label);
+  padding:calc(var(--u)*1.5) var(--u); cursor:pointer; border:0; border-radius:3px;
+  background:transparent; color:var(--ink-3);
+}
+.switch button[aria-pressed="true"]{background:var(--key); color:var(--ink); box-shadow:var(--raise-lo)}
+.switch button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+
+/* ---- layout ---- */
+.stage{display:grid; grid-template-columns:1fr 316px; min-height:0; background:var(--rule); gap:var(--hair)}
+.screen{
+  position:relative; overflow:hidden; background:var(--win);
+  box-shadow:inset 0 3px 10px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.5);
+}
+canvas{display:block; width:100%; height:100%; background:var(--win); cursor:crosshair; touch-action:none}
+
+.col{display:grid; grid-template-rows:auto 1fr; min-height:0; background:var(--rule); gap:var(--hair)}
+.readout .ctl-l{margin-bottom:calc(var(--u)*1.75)}
+.readout .ctl-l.warn b{color:var(--accent)}
+
+/* ---- inside the display window ---- */
+#hud{
+  position:absolute; top:calc(var(--u)*4); right:calc(var(--u)*4);
+  font-family:var(--mono); font-size:9px; letter-spacing:.1em; color:var(--win-dim);
+  text-align:right; line-height:1.8; pointer-events:none; font-variant-numeric:tabular-nums;
+}
+#hud b{font-weight:400; color:var(--win-ink)}
+#motionview{
+  position:absolute; left:calc(var(--u)*4); bottom:calc(var(--u)*4);
+  width:128px; height:72px; cursor:default; pointer-events:none; display:none;
+  image-rendering:pixelated; border-radius:var(--r-tile); box-shadow:0 0 0 1px rgba(255,255,255,.08);
+}
+body.motion #motionview{display:block}
+.key .lamp{width:6px; height:6px}
+#hud .warn{color:var(--accent)}
+
+#empty{
+  position:absolute; inset:0; display:grid; place-content:center; justify-items:center;
+  gap:calc(var(--u)*4); text-align:center; padding:calc(var(--u)*6);
+}
+#empty .big{
+  font-family:var(--mono); font-size:46px; line-height:.9; color:var(--win-dim);
+  font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+}
+#empty p{font-family:var(--mono); font-size:10px; letter-spacing:.12em; color:var(--win-dim)}
+#empty .subcopy{font-size:9px; letter-spacing:.06em; color:var(--win-dim); line-height:1.9; font-family:var(--mono)}
+body.loaded #empty{display:none}
+
+#drop{
+  position:absolute; inset:calc(var(--u)*3); display:none; place-content:center;
+  border:var(--hair) dashed var(--accent); border-radius:4px; color:var(--accent);
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em; pointer-events:none;
+}
+body.dragging #drop{display:grid}
+
+.keys{
+  display:flex; flex-wrap:wrap; gap:4px calc(var(--u)*5);
+  padding:calc(var(--u)*2.5) calc(var(--u)*5);
+  border-top:var(--hair) solid var(--rule);
+  font-size:9.5px; color:var(--ink-3);
+}
+.keys b{font-family:var(--mono); font-weight:400; color:var(--ink-2)}
+.keys .right{margin-left:auto; display:flex; align-items:center; gap:calc(var(--u)*2.5)}
+
+body.bleed{padding:0}
+body.bleed .device{border-radius:0; box-shadow:none}
+body.bleed .brow, body.bleed .col, body.bleed .keys{display:none}
+body.bleed .stage{grid-template-columns:1fr}
+body.bleed .screen{box-shadow:none}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important; animation-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<div class="device">
+
+  <div class="brow">
+    <div class="mark">KP&#8211;1</div>
+    <div class="sub">cube &middot; classical map<br>milestone 1 &middot; <span id="srcname">no source</span></div>
+    <div class="switch" id="skin" style="flex:none;width:126px">
+      <button data-s="light" aria-pressed="true">light</button>
+      <button data-s="dark" aria-pressed="false">dark</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="screen" id="stagewin">
+      <canvas id="gl"></canvas>
+      <div id="hud"></div>
+      <canvas id="motionview" width="64" height="64"></canvas>
+      <div id="empty">
+        <div class="big">00</div>
+        <p>no source</p>
+        <button class="key" id="cam2">start camera</button>
+        <div class="subcopy">or drop a video anywhere &middot; then turn on hand motion</div>
+      </div>
+      <div id="drop">drop to load</div>
+    </div>
+
+    <div class="col">
+      <div class="tile">
+        <h2>press <em>pointer or hand motion</em></h2>
+        <div class="knobs">
+          <div class="dial" data-ctl="knob" data-k="depth"  data-min="1" data-max="127" data-step="1" data-def="96" data-dp="0"
+               data-hint="how many frames back the pointer presses, at its centre"></div>
+          <div class="dial" data-ctl="knob" data-k="radius" data-min="0.03" data-max="0.5" data-step="0.01" data-def="0.14"
+               data-hint="gaussian radius, as a fraction of frame height"></div>
+          <div class="dial" data-ctl="knob" data-k="decay"  data-min="0.2" data-max="10" data-step="0.1" data-def="2.5" data-dp="1"
+               data-hint="seconds for a press to relax to 1/e of its depth"></div>
+          <div class="dial" data-ctl="knob" data-k="sens"   data-min="0" data-max="1" data-step="0.01" data-def="0.6"
+               data-hint="how little motion it takes to press; higher reacts to smaller movements"></div>
+        </div>
+        <div class="row" style="margin-top:calc(var(--u)*4)">
+          <button class="key" id="motion" aria-pressed="false"><i class="lamp" id="mlamp"></i>hand motion</button>
+        </div>
+        <div class="note">drag on the display, or move in front of the camera, to press it into the past &middot; it relaxes back to the present.
+          knobs: drag vertically &middot; shift for fine &middot; double-click resets.</div>
+      </div>
+
+      <div class="tile readout">
+        <h2>cube <em id="cubeleg">not allocated</em></h2>
+        <div class="row" style="margin-bottom:calc(var(--u)*4)">
+          <button class="key" id="cam">camera</button>
+          <button class="key" id="vid">video file</button>
+        </div>
+        <input id="file" type="file" accept="video/*" hidden>
+        <div id="readout"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="keys">
+    <span><b>drag</b> press into the past</span>
+    <span><b>c</b> clear map</span>
+    <span><b>h</b> hand motion</span>
+    <span><b>m</b> show map</span>
+    <span><b>f</b> full bleed</span>
+    <span class="right"><span id="statusline"></span><i class="lamp" id="lamp"></i></span>
+  </div>
+
+</div>
+
+<script>
+/* KP–1 milestone 1 — webcam ring in a 3D texture, sampled d frames behind the present */
+
+const N = 128;                                   // frames held in the cube
+const SIZES = [[320,180], [240,135], [160,90]];  // target, then fallbacks; N fixed
+const MAP = 16;                                  // displacement cells per side, 2^4 × 2^4
+
+const QVERT = `#version 300 es
+precision highp float;
+in vec2 aQuad;
+out vec2 vUV;
+void main(){ vUV = aQuad*0.5 + 0.5; gl_Position = vec4(aQuad, 0.0, 1.0); }`;
+
+// source frame into one layer of the cube, cover-cropped to the cube's aspect
+const CFRAG = `#version 300 es
+precision highp float;
+in vec2 vUV;
+out vec4 frag;
+uniform sampler2D uSrc;
+uniform vec2  uScale;      // uv scale for the crop
+uniform float uMirror;
+void main(){
+  vec2 uv = (vUV - 0.5) * uScale + 0.5;
+  if(uMirror > 0.5) uv.x = 1.0 - uv.x;
+  frag = vec4(texture(uSrc, uv).rgb, 1.0);
+}`;
+
+// the display: every pixel reads the cube d frames behind the present
+const DFRAG = `#version 300 es
+precision highp float;
+precision highp sampler3D;
+in vec2 vUV;
+out vec4 frag;
+uniform sampler3D uCube;
+uniform sampler2D uMap;    // displacement in frames behind the present
+uniform float uShowMap;
+uniform float uHead;       // layer holding the present
+uniform float uN;
+uniform float uFill;       // layers written so far
+uniform vec2  uFit;        // letterbox scale
+void main(){
+  vec2 uv = (vUV - 0.5) / uFit + 0.5;
+  if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0){ frag = vec4(0.0,0.0,0.0,1.0); return; }
+  float d = clamp(texture(uMap, uv).r, 0.0, max(0.0, min(uN, uFill) - 1.0));
+  float z = (uHead - d + 0.5) / uN;                  // ring index; wrap R is REPEAT
+  vec3 c = texture(uCube, vec3(uv, z)).rgb;
+  if(uShowMap > 0.5) c = mix(c, vec3(0.93, 0.42, 0.12), 0.65 * d / (uN - 1.0));
+  frag = vec4(c, 1.0);
+}`;
+
+/* ---------- gl setup ---------- */
+const cv = document.getElementById('gl');
+const gl = cv.getContext('webgl2', {antialias:false, premultipliedAlpha:false});
+if(!gl){ document.body.innerHTML = '<p style="padding:24px">WebGL2 is required. Try a current Chrome, Edge, Safari, or Firefox.</p>'; throw 0; }
+
+function sh(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(vs, fs, names){
+  const p = gl.createProgram();
+  gl.attachShader(p, sh(gl.VERTEX_SHADER, vs));
+  gl.attachShader(p, sh(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'aQuad');
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u = {};
+  for(const n of names) u[n] = gl.getUniformLocation(p, n);
+  return {p, u};
+}
+const cprog = program(QVERT, CFRAG, ['uSrc','uScale','uMirror']);
+const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit']);
+
+const quadVAO = gl.createVertexArray();
+gl.bindVertexArray(quadVAO);
+const qb = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, qb);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+gl.bindVertexArray(null);
+
+function drawQuad(){
+  gl.bindVertexArray(quadVAO);
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  gl.bindVertexArray(null);
+}
+
+/* ---------- the cube ---------- */
+const cube = { tex:null, w:0, h:0, fb: gl.createFramebuffer(), head:-1, fill:0, bytes:0, target:false, why:'' };
+const MAX3D = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
+
+// allocate, clear every layer, read back the deepest
+function tryCube(w, h){
+  if(w > MAX3D || h > MAX3D || N > MAX3D) return 'exceeds MAX_3D_TEXTURE_SIZE ' + MAX3D;
+  while(gl.getError());
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_3D, t);
+  gl.texStorage3D(gl.TEXTURE_3D, 1, gl.RGBA8, w, h, N);
+  const err = gl.getError();
+  if(err){ gl.deleteTexture(t); return err === gl.OUT_OF_MEMORY ? 'out of memory' : 'gl error ' + err; }
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.REPEAT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, cube.fb);
+  const px = new Uint8Array(4);
+  for(let z = 0; z < N; z++){
+    gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, t, 0, z);
+    if(z === 0 && gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE){
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteTexture(t); return 'layer not renderable';
+    }
+    gl.clearColor(z === N-1 ? 1 : 0, 0, z === N-1 ? 1 : 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
+  gl.readPixels(w-1, h-1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  const e2 = gl.getError();
+  if(e2 || px[0] !== 255 || px[2] !== 255){ gl.deleteTexture(t); return e2 ? 'gl error ' + e2 : 'deepest layer did not read back'; }
+  cube.tex = t; cube.w = w; cube.h = h; cube.bytes = w*h*N*4;
+  return '';
+}
+
+function allocCube(){
+  const fails = [];
+  for(const [w,h] of SIZES){
+    const why = tryCube(w, h);
+    if(!why){ cube.target = (w === SIZES[0][0]); cube.why = fails.join(' · '); return true; }
+    fails.push(w + '×' + h + ': ' + why);
+  }
+  cube.why = fails.join(' · ');
+  return false;
+}
+
+/* ---------- source: camera or video file ---------- */
+const srcTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, srcTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+let src = null;          // {el, kind, label, stream?, url?}
+let fresh = false;       // a new source frame is waiting to be pushed into the cube
+
+function watchFrames(v){
+  if(v.requestVideoFrameCallback){
+    const cb = () => { if(src && src.el === v){ fresh = true; v.requestVideoFrameCallback(cb); } };
+    v.requestVideoFrameCallback(cb);
+  } else {
+    let t = -1;
+    const poll = () => { if(!src || src.el !== v) return;
+      if(v.currentTime !== t){ t = v.currentTime; fresh = true; } requestAnimationFrame(poll); };
+    requestAnimationFrame(poll);
+  }
+}
+
+function releaseSource(){
+  if(!src) return;
+  const s = src; src = null; fresh = false;
+  s.el.pause();
+  s.stream?.getTracks().forEach(t => t.stop());
+  if(s.url) URL.revokeObjectURL(s.url);
+  s.el.removeAttribute('src'); s.el.srcObject = null; s.el.load();
+}
+
+function resetCube(){
+  cube.head = -1; cube.fill = 0;
+}
+
+async function useVideo(v, s){
+  v.muted = true; v.playsInline = true;
+  await new Promise((res, rej) => {
+    v.addEventListener('loadeddata', res, {once:true});
+    v.addEventListener('error', () => rej(new Error('decode failed')), {once:true});
+  });
+  await v.play().catch(()=>{});
+  releaseSource();
+  src = Object.assign({el:v}, s);
+  resetCube(); watchFrames(v); updateSource();
+}
+
+async function startCamera(){
+  if(!navigator.mediaDevices?.getUserMedia){ setStatus('no camera api here · needs https or localhost'); return; }
+  setStatus('asking for the camera…');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ width:{ideal:640}, height:{ideal:360}, frameRate:{ideal:30} }, audio:false });
+    const v = document.createElement('video');
+    v.srcObject = stream;
+    const track = stream.getVideoTracks()[0];
+    await useVideo(v, {kind:'camera', label: (track?.label || 'camera').split(/[\\/]/).pop().slice(0,24), stream, mirror:true});
+  } catch(err){
+    setStatus('camera: ' + (err.name || err.message));
+  }
+}
+
+async function loadFile(file){
+  if(!file || !/^video\//.test(file.type)){ setStatus('not a video'); return; }
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video');
+  v.loop = true; v.preload = 'auto'; v.src = url;
+  try {
+    await useVideo(v, {kind:'file', label: file.name.replace(/\.[^.]+$/,'').slice(0,18) || 'clip', url, mirror:false});
+  } catch(err){
+    URL.revokeObjectURL(url); setStatus(file.name + ' — ' + err.message);
+  }
+}
+
+function updateSource(){
+  document.body.classList.toggle('loaded', !!src);
+  document.getElementById('srcname').textContent = src ? src.label : 'no source';
+  lampEl.classList.toggle('is-on', !!src);
+  if(src) setStatus(src.kind + ' · ' + src.el.videoWidth + '×' + src.el.videoHeight);
+}
+
+// push the newest source frame into the next layer of the ring
+function capture(){
+  const v = src.el;
+  if(v.readyState < 2 || !v.videoWidth) return;
+  gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, v);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+
+  cube.head = (cube.head + 1) % N;
+  cube.fill = Math.min(N, cube.fill + 1);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, cube.fb);
+  gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, cube.tex, 0, cube.head);
+  gl.viewport(0, 0, cube.w, cube.h);
+  gl.useProgram(cprog.p);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, srcTex);
+  gl.uniform1i(cprog.u.uSrc, 0);
+  const sa = v.videoWidth / v.videoHeight, ta = cube.w / cube.h;
+  gl.uniform2f(cprog.u.uScale, sa > ta ? ta/sa : 1, sa > ta ? 1 : sa/ta);
+  gl.uniform1f(cprog.u.uMirror, src.mirror ? 1 : 0);
+  drawQuad();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  meter.cap++;
+}
+
+/* ---------- displacement map: classical stand-in for the state ---------- */
+const dmap = new Float32Array(MAP*MAP);          // frames behind the present, row 0 at the bottom
+const mapTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, mapTex);
+gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16F, MAP, MAP);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+const press = { down:false, u:0, v:0 };
+let showMap = false;
+
+// relax toward the present, then press a gaussian in under the pointer
+function stepMap(dt){
+  const k = Math.exp(-dt / val('decay'));
+  for(let i = 0; i < dmap.length; i++) dmap[i] *= k;
+  if(press.down){
+    const depth = val('depth'), r = val('radius'), ar = cube.w / cube.h;
+    const inv = 1 / (2 * r * r);
+    for(let y = 0; y < MAP; y++) for(let x = 0; x < MAP; x++){
+      const dx = ((x + 0.5) / MAP - press.u) * ar, dy = (y + 0.5) / MAP - press.v;
+      const i = y * MAP + x;
+      dmap[i] = Math.max(dmap[i], depth * Math.exp(-(dx*dx + dy*dy) * inv));
+    }
+  }
+  if(motion.on){
+    const depth = val('depth');
+    for(let i = 0; i < dmap.length; i++) dmap[i] = Math.max(dmap[i], depth * motion.level[i]);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, mapTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP, MAP, gl.RED, gl.FLOAT, dmap);
+}
+
+// pointer in cube uv, y up, through the letterbox
+function pointerUV(e){
+  const r = cv.getBoundingClientRect();
+  const ca = r.width / r.height, ta = cube.w / cube.h;
+  const fx = ca > ta ? ta/ca : 1, fy = ca > ta ? 1 : ca/ta;
+  const px = (e.clientX - r.left) / r.width, py = 1 - (e.clientY - r.top) / r.height;
+  return [(px - 0.5) / fx + 0.5, (py - 0.5) / fy + 0.5];
+}
+cv.addEventListener('pointerdown', e => {
+  [press.u, press.v] = pointerUV(e); press.down = true;
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => { if(press.down) [press.u, press.v] = pointerUV(e); });
+['pointerup','pointercancel'].forEach(t => cv.addEventListener(t, () => { press.down = false; }));
+
+/* ---------- motion: webcam frame difference presses the map ---------- */
+const MS = MAP * 4;                              // motion samples per side, 4×4 per cell
+const motion = { on:false, el:null, stream:null, fresh:false, prev:null,
+                 level:new Float32Array(MAP*MAP), peak:0 };
+const mcv = document.getElementById('motionview');
+const mctx = mcv.getContext('2d', {willReadFrequently:true});
+
+async function startMotion(){
+  if(!navigator.mediaDevices?.getUserMedia){ setStatus('no camera api here \u00b7 needs https or localhost'); return; }
+  setStatus('asking for the camera\u2026');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ width:{ideal:640}, height:{ideal:360}, frameRate:{ideal:30} }, audio:false });
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.srcObject = stream;
+    await v.play();
+    Object.assign(motion, {on:true, el:v, stream, prev:null, fresh:false});
+    const cb = () => { if(motion.el === v){ motion.fresh = true; v.requestVideoFrameCallback(cb); } };
+    if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(cb);
+    else { let t = -1; const poll = () => { if(motion.el !== v) return;
+      if(v.currentTime !== t){ t = v.currentTime; motion.fresh = true; } requestAnimationFrame(poll); }; poll(); }
+    setStatus(src ? 'hand motion on' : 'hand motion on \u00b7 load a video to contort');
+  } catch(err){
+    setStatus('motion camera: ' + (err.name || err.message));
+  }
+  updateMotion();
+}
+
+function stopMotion(){
+  motion.stream?.getTracks().forEach(t => t.stop());
+  Object.assign(motion, {on:false, el:null, stream:null, prev:null, peak:0});
+  motion.level.fill(0);
+  updateMotion();
+}
+
+function updateMotion(){
+  document.body.classList.toggle('motion', motion.on);
+  document.getElementById('motion').setAttribute('aria-pressed', String(motion.on));
+  document.getElementById('mlamp').classList.toggle('is-on', motion.on);
+}
+
+// camera → mirrored, cropped to the cube's aspect → per-cell mean luma change → splatted level
+function senseMotion(){
+  const v = motion.el;
+  if(v.readyState < 2 || !v.videoWidth) return;
+  const vw = v.videoWidth, vh = v.videoHeight, ta = cube.w / cube.h;
+  const sw = vw / vh > ta ? vh * ta : vw, sh = vw / vh > ta ? vh : vw / ta;
+  mctx.setTransform(-1, 0, 0, 1, MS, 0);
+  mctx.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, MS, MS);
+  mctx.setTransform(1, 0, 0, 1, 0, 0);
+  const img = mctx.getImageData(0, 0, MS, MS), px = img.data;
+  const lum = new Float32Array(MS * MS);
+  for(let i = 0; i < lum.length; i++) lum[i] = 0.299*px[i*4] + 0.587*px[i*4+1] + 0.114*px[i*4+2];
+
+  const raw = new Float32Array(MAP * MAP);
+  const floor = 3 + (1 - val('sens')) * 30;
+  for(let y = 0; y < MS; y++) for(let x = 0; x < MS; x++){
+    const i = y * MS + x;
+    const d = motion.prev ? Math.abs(lum[i] - motion.prev[i]) : 0;
+    raw[(MAP - 1 - (y >> 2)) * MAP + (x >> 2)] += d / 16;
+    const k = Math.min(1, Math.max(0, (d - floor) / 40));
+    px[i*4] = lum[i]*0.35 + k*200; px[i*4+1] = lum[i]*0.35 + k*90; px[i*4+2] = lum[i]*0.35 + k*25;
+  }
+  mctx.putImageData(img, 0, 0);
+  motion.prev = lum;
+
+  // cells over the floor splat a gaussian of the pointer's radius
+  const r = val('radius'), ar = cube.w / cube.h, inv = 1 / (2 * r * r);
+  motion.level.fill(0); motion.peak = 0;
+  for(let i = 0; i < raw.length; i++){
+    const m = Math.min(1, Math.max(0, (raw[i] - floor) / 24));
+    if(m <= 0) continue;
+    motion.peak = Math.max(motion.peak, m);
+    const ix = (i % MAP + 0.5) / MAP, iy = (Math.floor(i / MAP) + 0.5) / MAP;
+    for(let j = 0; j < raw.length; j++){
+      const dx = ((j % MAP + 0.5) / MAP - ix) * ar, dy = (Math.floor(j / MAP) + 0.5) / MAP - iy;
+      motion.level[j] = Math.max(motion.level[j], m * Math.exp(-(dx*dx + dy*dy) * inv));
+    }
+  }
+}
+
+document.getElementById('motion').onclick = () => motion.on ? stopMotion() : startMotion();
+
+/* ---------- frame ---------- */
+const meter = { cap:0, frames:0, t0:performance.now(), fps:0, capfps:0 };
+let last = performance.now();
+
+function frame(now){
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  const w = Math.round(cv.clientWidth * devicePixelRatio), h = Math.round(cv.clientHeight * devicePixelRatio);
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+
+  if(src && fresh && cube.tex){ fresh = false; capture(); }
+  if(motion.on && motion.fresh && cube.tex){ motion.fresh = false; senseMotion(); }
+  stepMap(dt);
+
+  gl.viewport(0, 0, cv.width, cv.height);
+  gl.clearColor(0,0,0,1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  if(src && cube.fill > 0){
+    gl.useProgram(dprog.p);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_3D, cube.tex);
+    gl.uniform1i(dprog.u.uCube, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, mapTex);
+    gl.uniform1i(dprog.u.uMap, 1);
+    gl.uniform1f(dprog.u.uShowMap, showMap ? 1 : 0);
+    gl.uniform1f(dprog.u.uHead, cube.head);
+    gl.uniform1f(dprog.u.uN, N);
+    gl.uniform1f(dprog.u.uFill, cube.fill);
+    const ca = cv.width / cv.height, ta = cube.w / cube.h;
+    gl.uniform2f(dprog.u.uFit, ca > ta ? ta/ca : 1, ca > ta ? 1 : ca/ta);
+    drawQuad();
+  }
+
+  meter.frames++;
+  if(now - meter.t0 >= 1000){
+    const s = (now - meter.t0) / 1000;
+    meter.fps = meter.frames / s; meter.capfps = meter.cap / s;
+    meter.frames = 0; meter.cap = 0; meter.t0 = now;
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------- dials ---------- */
+const dials = {};
+
+function buildDials(selector, map){
+  document.querySelectorAll(selector).forEach(d => {
+    const k = d.dataset.k;
+    const a = { min:d.dataset.min, max:d.dataset.max, step:d.dataset.step, def:d.dataset.def };
+    const dp = d.dataset.dp !== undefined ? +d.dataset.dp : 2;
+    d.title = d.dataset.hint || '';
+    d.className = 'knobwrap';
+    d.innerHTML =
+      `<div class="knob" id="k_${k}" tabindex="0" role="slider" aria-label="${k}"><i></i></div>` +
+      `<span>${k}</span><b id="o_${k}"></b>` +
+      `<input id="d_${k}" type="range" min="${a.min}" max="${a.max}" step="${a.step}" value="${a.def}" hidden>`;
+    const inp = d.querySelector('input'), out = d.querySelector('b');
+    map[k] = inp;
+    const knob = d.querySelector('.knob');
+    const show = () => { out.textContent = parseFloat(inp.value).toFixed(dp); paintKnob(knob, inp); };
+    inp.addEventListener('input', show);
+    wireKnob(knob, inp);
+    show();
+  });
+}
+
+/* 270 degrees of travel, starting at 225deg */
+function paintKnob(knob, inp){
+  const lo = +inp.min, hi = +inp.max;
+  const pct = (parseFloat(inp.value) - lo) / (hi - lo);
+  knob.style.setProperty('--angle', (-135 + pct*270) + 'deg');
+  knob.style.setProperty('--sweep', (pct*270) + 'deg');
+  knob.setAttribute('aria-valuenow', parseFloat(inp.value).toFixed(2));
+  knob.setAttribute('aria-valuemin', inp.min);
+  knob.setAttribute('aria-valuemax', inp.max);
+}
+
+function wireKnob(knob, inp){
+  const lo = +inp.min, hi = +inp.max, step = +inp.step;
+  const nudge = (dy, fine) => {
+    const v = parseFloat(inp.value) + dy * (hi-lo) * (fine ? 0.0015 : 0.006);
+    inp.value = Math.min(hi, Math.max(lo, Math.round(v/step)*step));
+    inp.dispatchEvent(new Event('input', {bubbles:true}));
+  };
+  let last = null;
+  knob.addEventListener('pointerdown', e => {
+    last = e.clientY; knob.setPointerCapture?.(e.pointerId); e.preventDefault();
+  });
+  knob.addEventListener('pointermove', e => {
+    if(last === null) return;
+    nudge(last - e.clientY, e.shiftKey); last = e.clientY;
+  });
+  ['pointerup','pointercancel'].forEach(t => knob.addEventListener(t, () => { last = null; }));
+  knob.addEventListener('dblclick', () => {
+    inp.value = inp.defaultValue; inp.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  knob.addEventListener('keydown', e => {
+    const d = {ArrowUp:1, ArrowRight:1, ArrowDown:-1, ArrowLeft:-1}[e.key];
+    if(!d) return;
+    e.preventDefault(); nudge(d*8, e.shiftKey);
+  });
+  knob.addEventListener('wheel', e => { e.preventDefault(); nudge(-e.deltaY*0.25, e.shiftKey); }, {passive:false});
+}
+buildDials('.dial', dials);
+
+const val = k => parseFloat(dials[k].value);
+
+/* ---------- device chrome ---------- */
+const lampEl = document.getElementById('lamp');
+
+document.getElementById('skin').addEventListener('click', e => {
+  const b = e.target.closest('button[data-s]');
+  if(!b) return;
+  document.documentElement.dataset.skin = b.dataset.s;
+  document.querySelectorAll('#skin button').forEach(x =>
+    x.setAttribute('aria-pressed', String(x.dataset.s === b.dataset.s)));
+});
+
+function toggleBleed(){ document.body.classList.toggle('bleed'); }
+
+function setStatus(msg){ document.getElementById('statusline').textContent = msg; }
+
+addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT') return;
+  if(e.key === 'f'){ e.preventDefault(); toggleBleed(); }
+  if(e.key === 'c'){ dmap.fill(0); }
+  if(e.key === 'm'){ showMap = !showMap; }
+  if(e.key === 'h'){ motion.on ? stopMotion() : startMotion(); }
+  if(e.key === 'Escape'){ document.body.classList.remove('bleed'); }
+});
+
+/* ---------- sources in ---------- */
+const fileInput = document.getElementById('file');
+document.getElementById('cam').onclick = startCamera;
+document.getElementById('cam2').onclick = startCamera;
+document.getElementById('vid').onclick = () => fileInput.click();
+fileInput.onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
+
+const isFileDrag = e => [...(e.dataTransfer?.types || [])].includes('Files');
+['dragenter','dragover'].forEach(t => document.addEventListener(t, e => {
+  if(!isFileDrag(e)) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+  document.body.classList.add('dragging');
+}));
+document.addEventListener('dragleave', e => {
+  if(e.relatedTarget === null) document.body.classList.remove('dragging');
+});
+document.addEventListener('drop', e => {
+  if(!isFileDrag(e)) return;
+  e.preventDefault();
+  document.body.classList.remove('dragging');
+  loadFile(e.dataTransfer?.files?.[0]);
+});
+
+/* ---------- readout ---------- */
+const hud = document.getElementById('hud');
+const readoutEl = document.getElementById('readout');
+const glInfo = (() => {
+  const x = gl.getExtension('WEBGL_debug_renderer_info');
+  return x ? gl.getParameter(x.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+})();
+
+function rowHTML(k, v, warn){ return `<div class="ctl-l${warn?' warn':''}"><span>${k}</span><b>${v}</b></div>`; }
+
+function drawReadout(){
+  const pad = n => String(Math.max(0, n)).padStart(3, '0');
+  const secs = meter.capfps > 1 ? (cube.fill / meter.capfps).toFixed(1) + ' s' : '--';
+  readoutEl.innerHTML = cube.tex
+    ? rowHTML('size', `${cube.w}×${cube.h}×${N}`, !cube.target) +
+      rowHTML('memory', (cube.bytes / 1e6).toFixed(1) + ' MB') +
+      rowHTML('held', `${cube.fill} / ${N} · ${secs}`) +
+      rowHTML('display', meter.fps.toFixed(0) + ' fps') +
+      rowHTML('capture', meter.capfps.toFixed(0) + ' fps') +
+      rowHTML('motion', motion.on ? 'on \u00b7 ' + motion.peak.toFixed(2) : 'off') +
+      rowHTML('max 3d', MAX3D) +
+      (cube.why ? `<div class="note">${cube.why}</div>` : '') +
+      `<div class="note">${glInfo}</div>`
+    : rowHTML('size', 'failed', true) + `<div class="note">${cube.why}</div>`;
+  hud.innerHTML = src
+    ? `<div>present <b>${pad(cube.head)}</b></div>` +
+      `<div>held <b>${cube.fill}</b> / ${N}</div>` +
+      `<div>deepest <b>${pad(Math.round(Math.max(...dmap)))}</b></div>` +
+      `<div><b>${meter.fps.toFixed(0)}</b> fps · cam <b>${meter.capfps.toFixed(0)}</b></div>`
+    : '';
+}
+
+/* ---------- boot ---------- */
+if(allocCube()){
+  document.getElementById('cubeleg').textContent = cube.target ? 'at target size' : 'reduced · below target';
+  setStatus('start the camera or drop a video');
+} else {
+  document.getElementById('cubeleg').textContent = 'allocation failed';
+  setStatus('cube did not allocate');
+}
+drawReadout();
+setInterval(drawReadout, 250);
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
