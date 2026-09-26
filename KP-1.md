@@ -114,6 +114,50 @@ of the letterbox.
 Verified at 2× DPR: the grain is visible at the default and the frame is clean at 0.
 Display holds 60 fps and there are no GL errors.
 
+## Quantum blur (branch `kp-1/qblur`)
+
+This follows James Wootton's Quantum Blur, run live on the sheared frame. Toggle it with
+the **quantum blur** key or `q`. The `theta` knob sets the angle.
+
+```
+display pass → 256×144 target → readPixels → worker:
+  per RGB channel: amplitude[idx(x,y)] = √(value/255)
+  rx(θ·π) on each of 16 qubits
+  probability at each visible pixel, scaled so the channel's brightest pixel = 1
+→ upload → display pass samples it, then map overlay and grain
+```
+
+- **Encoding.** x and y are each Gray-coded, which is Wootton's `make_line` (reflected
+  binary). That way a flip of a low bit moves light to a neighbouring pixel, and a flip of
+  the top bit reflects it across that axis. The bits are interleaved `x_k y_k` to match
+  the project's layout. A uniform `rx` on every qubit is indifferent to qubit order, so
+  interleaving changes nothing here. The grid is padded to 256×256, so light can leak into
+  rows that are never displayed, as in Wootton's padding. That's the dark band at high θ.
+- **The `theta` knob is in units of π.** 0 is the identity. 0.5 spreads every pixel to
+  uniform magnitude. 1 flips every bit, which sends light to `k XOR 0b1010…`, not to a
+  mirror image. The default is 0.08: subtle echoes. By 0.15 it's heavy.
+- **Engine.** It uses split `Float32Array` real and imaginary parts, the idiom ported from
+  SV–1. SV–1 has no qubit gates and isn't importable, so there was nothing to reuse
+  directly. `qbEngine()` is self-contained and runs in a Blob-URL Web Worker, keeping the
+  simulation off the main thread. If a worker can't be created it runs inline, and the
+  readout says so.
+- **Cost on an M5 Max.** The simulation takes about 7.6 ms per frame in the worker, which
+  is 3 channels × 16 qubits × 65,536 amplitudes. `readPixels` takes about 1.6 ms on the
+  main thread (synchronous). A frame is sent only when a new source frame arrives or θ
+  changes, with one frame in flight. The output lags the input by about one source frame.
+- **Where the dials act.** The blur applies after the time shear, so the pointer and hand
+  presses are blurred too. Grain and the map overlay are added after the blur.
+
+Checked on single-pixel inputs:
+- θ = 0 leaves exactly one lit pixel.
+- θ = 0.5 spreads to all pixels equally.
+- θ = 1 lands on `k XOR 170`.
+- θ = 0.1 puts 6/255 on the nearest neighbours; theory is tan²(0.05π)·255 = 6.4.
+
+**Not verified:** display frame rate with the blur on. The laptop was on battery at 15%
+and macOS capped every page at 30 fps, blank pages included. The blur held that 30 fps.
+Whether it holds 60 still needs a check on mains power.
+
 ## Verified (milestone 1)
 
 Tested in Chrome 153 headless with ANGLE Metal on an Apple M5 Max. The camera was
