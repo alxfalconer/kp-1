@@ -136,7 +136,7 @@ body{
 .note{font-size:9.5px; line-height:1.7; color:var(--ink-3); margin-top:calc(var(--u)*3)}
 
 /* knob */
-.knobs{display:grid; grid-template-columns:repeat(3,1fr); gap:calc(var(--u)*3) calc(var(--u)*2)}
+.knobs{display:grid; grid-template-columns:repeat(4,1fr); gap:calc(var(--u)*3) calc(var(--u)*2)}
 .knobwrap{display:flex; flex-direction:column; align-items:center; gap:calc(var(--u)*1.5)}
 .knob{
   --angle:0deg; --sweep:0deg;
@@ -220,6 +220,13 @@ canvas{display:block; width:100%; height:100%; background:var(--win); cursor:cro
   text-align:right; line-height:1.8; pointer-events:none; font-variant-numeric:tabular-nums;
 }
 #hud b{font-weight:400; color:var(--win-ink)}
+#motionview{
+  position:absolute; left:calc(var(--u)*4); bottom:calc(var(--u)*4);
+  width:128px; height:72px; cursor:default; pointer-events:none; display:none;
+  image-rendering:pixelated; border-radius:var(--r-tile); box-shadow:0 0 0 1px rgba(255,255,255,.08);
+}
+body.motion #motionview{display:block}
+.key .lamp{width:6px; height:6px}
 #hud .warn{color:var(--accent)}
 
 #empty{
@@ -278,18 +285,19 @@ body.bleed .screen{box-shadow:none}
     <div class="screen" id="stagewin">
       <canvas id="gl"></canvas>
       <div id="hud"></div>
+      <canvas id="motionview" width="64" height="64"></canvas>
       <div id="empty">
         <div class="big">00</div>
         <p>no source</p>
         <button class="key" id="cam2">start camera</button>
-        <div class="subcopy">or drop a video anywhere</div>
+        <div class="subcopy">or drop a video anywhere &middot; then turn on hand motion</div>
       </div>
       <div id="drop">drop to load</div>
     </div>
 
     <div class="col">
       <div class="tile">
-        <h2>press <em>pointer into the past</em></h2>
+        <h2>press <em>pointer or hand motion</em></h2>
         <div class="knobs">
           <div class="dial" data-ctl="knob" data-k="depth"  data-min="1" data-max="127" data-step="1" data-def="96" data-dp="0"
                data-hint="how many frames back the pointer presses, at its centre"></div>
@@ -297,8 +305,13 @@ body.bleed .screen{box-shadow:none}
                data-hint="gaussian radius, as a fraction of frame height"></div>
           <div class="dial" data-ctl="knob" data-k="decay"  data-min="0.2" data-max="10" data-step="0.1" data-def="2.5" data-dp="1"
                data-hint="seconds for a press to relax to 1/e of its depth"></div>
+          <div class="dial" data-ctl="knob" data-k="sens"   data-min="0" data-max="1" data-step="0.01" data-def="0.6"
+               data-hint="how little motion it takes to press; higher reacts to smaller movements"></div>
         </div>
-        <div class="note">drag on the display to press it into the past &middot; it relaxes back to the present.
+        <div class="row" style="margin-top:calc(var(--u)*4)">
+          <button class="key" id="motion" aria-pressed="false"><i class="lamp" id="mlamp"></i>hand motion</button>
+        </div>
+        <div class="note">drag on the display, or move in front of the camera, to press it into the past &middot; it relaxes back to the present.
           knobs: drag vertically &middot; shift for fine &middot; double-click resets.</div>
       </div>
 
@@ -317,6 +330,7 @@ body.bleed .screen{box-shadow:none}
   <div class="keys">
     <span><b>drag</b> press into the past</span>
     <span><b>c</b> clear map</span>
+    <span><b>h</b> hand motion</span>
     <span><b>m</b> show map</span>
     <span><b>f</b> full bleed</span>
     <span class="right"><span id="statusline"></span><i class="lamp" id="lamp"></i></span>
@@ -596,6 +610,10 @@ function stepMap(dt){
       dmap[i] = Math.max(dmap[i], depth * Math.exp(-(dx*dx + dy*dy) * inv));
     }
   }
+  if(motion.on){
+    const depth = val('depth');
+    for(let i = 0; i < dmap.length; i++) dmap[i] = Math.max(dmap[i], depth * motion.level[i]);
+  }
   gl.bindTexture(gl.TEXTURE_2D, mapTex);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP, MAP, gl.RED, gl.FLOAT, dmap);
 }
@@ -615,6 +633,89 @@ cv.addEventListener('pointerdown', e => {
 cv.addEventListener('pointermove', e => { if(press.down) [press.u, press.v] = pointerUV(e); });
 ['pointerup','pointercancel'].forEach(t => cv.addEventListener(t, () => { press.down = false; }));
 
+/* ---------- motion: webcam frame difference presses the map ---------- */
+const MS = MAP * 4;                              // motion samples per side, 4×4 per cell
+const motion = { on:false, el:null, stream:null, fresh:false, prev:null,
+                 level:new Float32Array(MAP*MAP), peak:0 };
+const mcv = document.getElementById('motionview');
+const mctx = mcv.getContext('2d', {willReadFrequently:true});
+
+async function startMotion(){
+  if(!navigator.mediaDevices?.getUserMedia){ setStatus('no camera api here \u00b7 needs https or localhost'); return; }
+  setStatus('asking for the camera\u2026');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video:{ width:{ideal:640}, height:{ideal:360}, frameRate:{ideal:30} }, audio:false });
+    const v = document.createElement('video');
+    v.muted = true; v.playsInline = true; v.srcObject = stream;
+    await v.play();
+    Object.assign(motion, {on:true, el:v, stream, prev:null, fresh:false});
+    const cb = () => { if(motion.el === v){ motion.fresh = true; v.requestVideoFrameCallback(cb); } };
+    if(v.requestVideoFrameCallback) v.requestVideoFrameCallback(cb);
+    else { let t = -1; const poll = () => { if(motion.el !== v) return;
+      if(v.currentTime !== t){ t = v.currentTime; motion.fresh = true; } requestAnimationFrame(poll); }; poll(); }
+    setStatus(src ? 'hand motion on' : 'hand motion on \u00b7 load a video to contort');
+  } catch(err){
+    setStatus('motion camera: ' + (err.name || err.message));
+  }
+  updateMotion();
+}
+
+function stopMotion(){
+  motion.stream?.getTracks().forEach(t => t.stop());
+  Object.assign(motion, {on:false, el:null, stream:null, prev:null, peak:0});
+  motion.level.fill(0);
+  updateMotion();
+}
+
+function updateMotion(){
+  document.body.classList.toggle('motion', motion.on);
+  document.getElementById('motion').setAttribute('aria-pressed', String(motion.on));
+  document.getElementById('mlamp').classList.toggle('is-on', motion.on);
+}
+
+// camera → mirrored, cropped to the cube's aspect → per-cell mean luma change → splatted level
+function senseMotion(){
+  const v = motion.el;
+  if(v.readyState < 2 || !v.videoWidth) return;
+  const vw = v.videoWidth, vh = v.videoHeight, ta = cube.w / cube.h;
+  const sw = vw / vh > ta ? vh * ta : vw, sh = vw / vh > ta ? vh : vw / ta;
+  mctx.setTransform(-1, 0, 0, 1, MS, 0);
+  mctx.drawImage(v, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, MS, MS);
+  mctx.setTransform(1, 0, 0, 1, 0, 0);
+  const img = mctx.getImageData(0, 0, MS, MS), px = img.data;
+  const lum = new Float32Array(MS * MS);
+  for(let i = 0; i < lum.length; i++) lum[i] = 0.299*px[i*4] + 0.587*px[i*4+1] + 0.114*px[i*4+2];
+
+  const raw = new Float32Array(MAP * MAP);
+  const floor = 3 + (1 - val('sens')) * 30;
+  for(let y = 0; y < MS; y++) for(let x = 0; x < MS; x++){
+    const i = y * MS + x;
+    const d = motion.prev ? Math.abs(lum[i] - motion.prev[i]) : 0;
+    raw[(MAP - 1 - (y >> 2)) * MAP + (x >> 2)] += d / 16;
+    const k = Math.min(1, Math.max(0, (d - floor) / 40));
+    px[i*4] = lum[i]*0.35 + k*200; px[i*4+1] = lum[i]*0.35 + k*90; px[i*4+2] = lum[i]*0.35 + k*25;
+  }
+  mctx.putImageData(img, 0, 0);
+  motion.prev = lum;
+
+  // cells over the floor splat a gaussian of the pointer's radius
+  const r = val('radius'), ar = cube.w / cube.h, inv = 1 / (2 * r * r);
+  motion.level.fill(0); motion.peak = 0;
+  for(let i = 0; i < raw.length; i++){
+    const m = Math.min(1, Math.max(0, (raw[i] - floor) / 24));
+    if(m <= 0) continue;
+    motion.peak = Math.max(motion.peak, m);
+    const ix = (i % MAP + 0.5) / MAP, iy = (Math.floor(i / MAP) + 0.5) / MAP;
+    for(let j = 0; j < raw.length; j++){
+      const dx = ((j % MAP + 0.5) / MAP - ix) * ar, dy = (Math.floor(j / MAP) + 0.5) / MAP - iy;
+      motion.level[j] = Math.max(motion.level[j], m * Math.exp(-(dx*dx + dy*dy) * inv));
+    }
+  }
+}
+
+document.getElementById('motion').onclick = () => motion.on ? stopMotion() : startMotion();
+
 /* ---------- frame ---------- */
 const meter = { cap:0, frames:0, t0:performance.now(), fps:0, capfps:0 };
 let last = performance.now();
@@ -625,6 +726,7 @@ function frame(now){
   if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
 
   if(src && fresh && cube.tex){ fresh = false; capture(); }
+  if(motion.on && motion.fresh && cube.tex){ motion.fresh = false; senseMotion(); }
   stepMap(dt);
 
   gl.viewport(0, 0, cv.width, cv.height);
@@ -741,6 +843,7 @@ addEventListener('keydown', e => {
   if(e.key === 'f'){ e.preventDefault(); toggleBleed(); }
   if(e.key === 'c'){ dmap.fill(0); }
   if(e.key === 'm'){ showMap = !showMap; }
+  if(e.key === 'h'){ motion.on ? stopMotion() : startMotion(); }
   if(e.key === 'Escape'){ document.body.classList.remove('bleed'); }
 });
 
@@ -786,6 +889,7 @@ function drawReadout(){
       rowHTML('held', `${cube.fill} / ${N} · ${secs}`) +
       rowHTML('display', meter.fps.toFixed(0) + ' fps') +
       rowHTML('capture', meter.capfps.toFixed(0) + ' fps') +
+      rowHTML('motion', motion.on ? 'on \u00b7 ' + motion.peak.toFixed(2) : 'off') +
       rowHTML('max 3d', MAX3D) +
       (cube.why ? `<div class="note">${cube.why}</div>` : '') +
       `<div class="note">${glInfo}</div>`

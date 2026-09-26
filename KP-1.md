@@ -65,6 +65,40 @@ The cube shader already clamps `d` to `[0, fill−1]`, so negative values curren
 the present. The decision needed: is that clamp intended, or should it be
 `clamp(gain · (2ⁿ|a_k|² − 1), 0, N−1)`?
 
+## Hand motion (branch `kp-1/motion`)
+
+The webcam acts as a controller, and a video file (or the camera itself) fills the cube.
+Wherever the camera sees motion, that part of the picture is pressed into the past, and it
+relaxes back the same way a pointer press does. Toggle with the **hand motion** key or `h`.
+Pointer presses still work alongside it.
+
+```
+camera → 64×64 luma, mirrored, cover-cropped to cube aspect → |Δ| vs previous frame
+       → mean per 4×4 block = one map cell → over the sens floor → gaussian splat (radius)
+       → dmap = max(dmap, depth · level)
+```
+
+- **It uses frame differencing, not hand tracking.** Hand landmarks (e.g. MediaPipe) would
+  be a new dependency, which the ground rules say to ask about first. Differencing reacts
+  to any motion, not only hands, so it works best against a still background.
+- **The camera is mirrored,** so a hand on the right presses the right of the picture, as
+  in a mirror.
+- **It runs on the CPU, at camera rate.** That's 64×64 samples and at most 256×256 splat
+  terms, well under a millisecond. It feeds the same 16×16 map the state layer will
+  replace.
+- **The motion camera has its own stream,** separate from the picture source, so either
+  one can stop without killing the other.
+- **Known sensitivities:** auto-exposure or white-balance shifts register as whole-frame
+  motion. Raise the `sens` floor (turn the knob down) if it presses when you're still.
+- **Depth in seconds depends on the picture source.** The cube counts source frames, so a
+  60 fps video file holds 2.1 s where a 30 fps camera holds 4.3 s.
+
+Verified in the same headless Chrome/Metal setup. The fake camera played the sweeping bar
+as the "hand", and the picture was a video file. The map's peak tracked the bar's position
+to within one cell (≤ 0.07 of frame width) across the full sweep. A test-pattern clip
+visibly bent into the past along the motion trail. Display ran at 60 fps with the motion
+driver on. Not verified: a real hand in front of a real webcam.
+
 ## Verified (milestone 1)
 
 Tested in Chrome 153 headless with ANGLE Metal on an Apple M5 Max. The camera was
