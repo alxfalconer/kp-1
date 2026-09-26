@@ -341,6 +341,7 @@ body.bleed .screen{box-shadow:none}
 
 const N = 128;                                   // frames held in the cube
 const SIZES = [[320,180], [240,135], [160,90]];  // target first, then fallbacks; N is never cut
+const MAP = 16;                                  // displacement cells per side, 2^4 × 2^4
 
 const QVERT = `#version 300 es
 precision highp float;
@@ -369,6 +370,8 @@ precision highp sampler3D;
 in vec2 vUV;
 out vec4 frag;
 uniform sampler3D uCube;
+uniform sampler2D uMap;    // displacement in frames behind the present
+uniform float uShowMap;
 uniform float uHead;       // layer holding the present
 uniform float uN;
 uniform float uFill;       // layers written so far
@@ -376,9 +379,11 @@ uniform vec2  uFit;        // letterbox scale
 void main(){
   vec2 uv = (vUV - 0.5) / uFit + 0.5;
   if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0){ frag = vec4(0.0,0.0,0.0,1.0); return; }
-  float d = clamp(0.0, 0.0, max(0.0, min(uN, uFill) - 1.0));
+  float d = clamp(texture(uMap, uv).r, 0.0, max(0.0, min(uN, uFill) - 1.0));
   float z = (uHead - d + 0.5) / uN;                  // wrap R repeats, so the ring seam filters
-  frag = vec4(texture(uCube, vec3(uv, z)).rgb, 1.0);
+  vec3 c = texture(uCube, vec3(uv, z)).rgb;
+  if(uShowMap > 0.5) c = mix(c, vec3(0.93, 0.42, 0.12), 0.65 * d / (uN - 1.0));
+  frag = vec4(c, 1.0);
 }`;
 
 /* ---------- gl setup ---------- */
@@ -404,7 +409,7 @@ function program(vs, fs, names){
   return {p, u};
 }
 const cprog = program(QVERT, CFRAG, ['uSrc','uScale','uMirror']);
-const dprog = program(QVERT, DFRAG, ['uCube','uHead','uN','uFill','uFit']);
+const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit']);
 
 const quadVAO = gl.createVertexArray();
 gl.bindVertexArray(quadVAO);
@@ -577,14 +582,62 @@ function capture(){
   meter.cap++;
 }
 
+/* ---------- displacement map: classical stand-in for the state ---------- */
+const dmap = new Float32Array(MAP*MAP);          // frames behind the present, row 0 at the bottom
+const mapTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, mapTex);
+gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16F, MAP, MAP);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+const press = { down:false, u:0, v:0 };
+let showMap = false;
+
+// relax toward the present, then press a gaussian in under the pointer
+function stepMap(dt){
+  const k = Math.exp(-dt / val('decay'));
+  for(let i = 0; i < dmap.length; i++) dmap[i] *= k;
+  if(press.down){
+    const depth = val('depth'), r = val('radius'), ar = cube.w / cube.h;
+    const inv = 1 / (2 * r * r);
+    for(let y = 0; y < MAP; y++) for(let x = 0; x < MAP; x++){
+      const dx = ((x + 0.5) / MAP - press.u) * ar, dy = (y + 0.5) / MAP - press.v;
+      const i = y * MAP + x;
+      dmap[i] = Math.max(dmap[i], depth * Math.exp(-(dx*dx + dy*dy) * inv));
+    }
+  }
+  gl.bindTexture(gl.TEXTURE_2D, mapTex);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAP, MAP, gl.RED, gl.FLOAT, dmap);
+}
+
+// pointer in cube uv, y up, through the letterbox
+function pointerUV(e){
+  const r = cv.getBoundingClientRect();
+  const ca = r.width / r.height, ta = cube.w / cube.h;
+  const fx = ca > ta ? ta/ca : 1, fy = ca > ta ? 1 : ca/ta;
+  const px = (e.clientX - r.left) / r.width, py = 1 - (e.clientY - r.top) / r.height;
+  return [(px - 0.5) / fx + 0.5, (py - 0.5) / fy + 0.5];
+}
+cv.addEventListener('pointerdown', e => {
+  [press.u, press.v] = pointerUV(e); press.down = true;
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', e => { if(press.down) [press.u, press.v] = pointerUV(e); });
+['pointerup','pointercancel'].forEach(t => cv.addEventListener(t, () => { press.down = false; }));
+
 /* ---------- frame ---------- */
 const meter = { cap:0, frames:0, t0:performance.now(), fps:0, capfps:0 };
+let last = performance.now();
 
 function frame(now){
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
   const w = Math.round(cv.clientWidth * devicePixelRatio), h = Math.round(cv.clientHeight * devicePixelRatio);
   if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
 
   if(src && fresh && cube.tex){ fresh = false; capture(); }
+  stepMap(dt);
 
   gl.viewport(0, 0, cv.width, cv.height);
   gl.clearColor(0,0,0,1);
@@ -594,6 +647,10 @@ function frame(now){
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_3D, cube.tex);
     gl.uniform1i(dprog.u.uCube, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, mapTex);
+    gl.uniform1i(dprog.u.uMap, 1);
+    gl.uniform1f(dprog.u.uShowMap, showMap ? 1 : 0);
     gl.uniform1f(dprog.u.uHead, cube.head);
     gl.uniform1f(dprog.u.uN, N);
     gl.uniform1f(dprog.u.uFill, cube.fill);
@@ -694,6 +751,8 @@ function setStatus(msg){ document.getElementById('statusline').textContent = msg
 addEventListener('keydown', e => {
   if(e.target.tagName === 'INPUT') return;
   if(e.key === 'f'){ e.preventDefault(); toggleBleed(); }
+  if(e.key === 'c'){ dmap.fill(0); }
+  if(e.key === 'm'){ showMap = !showMap; }
   if(e.key === 'Escape'){ document.body.classList.remove('bleed'); }
 });
 
@@ -746,6 +805,7 @@ function drawReadout(){
   hud.innerHTML = src
     ? `<div>present <b>${pad(cube.head)}</b></div>` +
       `<div>held <b>${cube.fill}</b> / ${N}</div>` +
+      `<div>deepest <b>${pad(Math.round(Math.max(...dmap)))}</b></div>` +
       `<div><b>${meter.fps.toFixed(0)}</b> fps · cam <b>${meter.capfps.toFixed(0)}</b></div>`
     : '';
 }
