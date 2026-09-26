@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en" data-skin="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KP–1</title>
+<!--
+  KP–1 — the recent past as a cube you can press into.
+
+  Single file. No dependencies, no build step. Open it in a browser.
+  Shell and GL pipeline carried from CT–1 contort.
+  Milestone 1: cube only, classical displacement map.
+-->
+<style>
+/* ============================================================
+   tokens — carried from CT–1
+   ============================================================ */
+:root{
+  --accent:#ED6B1F;
+  --accent-deep:#C4491A;
+  --accent-red:#BF1B1B;
+
+  --r-key:5px;
+  --r-tile:2px;
+  --r-body:14px;
+  --u:4px;
+  --hair:1px;
+
+  --sans:"Helvetica Neue",Helvetica,Inter,-apple-system,"Segoe UI",Arial,sans-serif;
+  --mono:"Berkeley Mono","BerkeleyMono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+
+  --t-label:10px;
+  --t-body:12px;
+  --t-value:11px;
+  --t-mark:16px;
+  --ls-label:.02em;
+}
+
+/* light — the default */
+:root,[data-skin="light"]{
+  --page:#DEDCD5;
+  --body:#EFEEE9;
+  --body-hi:#F8F7F4;
+  --body-lo:#E4E2DC;
+  --rule:#D3D1C9;
+
+  --key:#F4F3EF;
+  --key-lo:#E6E4DE;
+  --slot:#D8D6CE;
+
+  --ink:#22211E;
+  --ink-2:#605E58;
+  --ink-3:#95938B;
+
+  --win:#141413;
+  --win-ink:#F2F2EE;
+  --win-dim:#6E6E68;
+
+  --lamp-off:#CBC9C1;
+
+  --raise:0 1px 1px rgba(40,38,32,.14), 0 2px 5px rgba(40,38,32,.07),
+          inset 0 1px 0 rgba(255,255,255,.95);
+  --raise-lo:0 1px 1px rgba(40,38,32,.12), inset 0 1px 0 rgba(255,255,255,.8);
+  --press:inset 0 2px 4px rgba(40,38,32,.22);
+  --recess:inset 0 2px 3px rgba(40,38,32,.20), inset 0 -1px 0 rgba(255,255,255,.7);
+  --panel:0 1px 0 rgba(255,255,255,.7) inset;
+}
+
+/* dark — for projection */
+[data-skin="dark"]{
+  --page:#131311;
+  --body:#1F1F1D;
+  --body-hi:#2A2A27;
+  --body-lo:#191917;
+  --rule:#323230;
+
+  --key:#2C2C29;
+  --key-lo:#242422;
+  --slot:#141413;
+
+  --ink:#EAE9E4;
+  --ink-2:#9B998F;
+  --ink-3:#6E6C64;
+
+  --win:#0B0B0A;
+  --win-ink:#F2F2EE;
+  --win-dim:#6E6E68;
+
+  --lamp-off:#3A3A36;
+
+  --raise:0 1px 2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.07);
+  --raise-lo:0 1px 1px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
+  --press:inset 0 2px 4px rgba(0,0,0,.6);
+  --recess:inset 0 2px 4px rgba(0,0,0,.6), inset 0 -1px 0 rgba(255,255,255,.05);
+  --panel:none;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--page); color:var(--ink);
+  font-family:var(--sans); font-size:var(--t-body); line-height:1.4;
+  -webkit-font-smoothing:antialiased;
+  padding:calc(var(--u)*4); overflow:hidden;
+}
+
+/* ---- the object ---- */
+.device{
+  background:var(--body); border-radius:var(--r-body); overflow:hidden;
+  box-shadow:0 1px 0 rgba(255,255,255,.7) inset,
+             0 2px 4px rgba(40,38,32,.10),
+             0 24px 50px -24px rgba(40,38,32,.32);
+  height:100%; display:grid; grid-template-rows:auto 1fr auto; min-height:0;
+}
+
+.brow{
+  display:flex; align-items:center; gap:calc(var(--u)*4);
+  padding:calc(var(--u)*3) calc(var(--u)*5);
+  border-bottom:var(--hair) solid var(--rule);
+}
+.mark{font-size:var(--t-mark); letter-spacing:.01em; font-weight:500}
+.sub{
+  font-family:var(--mono); font-size:9px; color:var(--ink-3);
+  letter-spacing:.04em; margin-left:auto; text-align:right; line-height:1.55;
+}
+
+.tile{background:var(--body); padding:calc(var(--u)*4) calc(var(--u)*5) calc(var(--u)*5); min-height:0}
+.tile h2{
+  display:flex; justify-content:space-between; align-items:baseline;
+  font-size:var(--t-label); font-weight:400; letter-spacing:.14em;
+  color:var(--ink-2); margin-bottom:calc(var(--u)*3.5);
+}
+.tile h2 em{font-style:normal; color:var(--ink-3); letter-spacing:.02em}
+
+/* ---- controls ---- */
+.ctl{margin-bottom:calc(var(--u)*3)}
+.ctl:last-child{margin-bottom:0}
+.ctl-l{display:flex; justify-content:space-between; align-items:baseline; gap:calc(var(--u)*2.5)}
+.ctl-l span{font-size:11px; color:var(--ink)}
+.ctl-l b{
+  font-family:var(--mono); font-size:var(--t-value); font-weight:400;
+  color:var(--ink-2); font-variant-numeric:tabular-nums;
+}
+.note{font-size:9.5px; line-height:1.7; color:var(--ink-3); margin-top:calc(var(--u)*3)}
+
+/* knob — value is the pointer's position, as on a real one */
+.knobs{display:grid; grid-template-columns:repeat(3,1fr); gap:calc(var(--u)*3) calc(var(--u)*2)}
+.knobwrap{display:flex; flex-direction:column; align-items:center; gap:calc(var(--u)*1.5)}
+.knob{
+  --angle:0deg; --sweep:0deg;
+  width:56px; height:56px; border-radius:50%; position:relative; flex:none;
+  cursor:ns-resize; touch-action:none;
+  background:conic-gradient(from 225deg, var(--ink-3) 0 var(--sweep), var(--slot) var(--sweep) 270deg, transparent 270deg);
+  padding:4px;
+}
+.knob i{
+  display:block; width:100%; height:100%; border-radius:50%;
+  background:var(--key); box-shadow:var(--raise); position:relative;
+}
+.knob i::after{
+  content:""; position:absolute; left:50%; top:5px;
+  width:5px; height:5px; margin-left:-2.5px; border-radius:50%;
+  background:var(--accent);
+  transform-origin:50% 19px; transform:rotate(var(--angle));
+}
+.knob:focus-visible{outline:2px solid var(--accent); outline-offset:3px}
+.knobwrap span{font-size:9.5px; color:var(--ink-2); letter-spacing:var(--ls-label)}
+.knobwrap b{
+  font-family:var(--mono); font-size:10px; font-weight:400; color:var(--ink-3);
+  font-variant-numeric:tabular-nums;
+}
+
+/* key — moulded, presses in */
+.key{
+  font-family:var(--sans); font-size:var(--t-label);
+  letter-spacing:var(--ls-label); color:var(--ink);
+  background:var(--key); border:0; border-radius:var(--r-key);
+  padding:calc(var(--u)*2.25) calc(var(--u)*2.5); cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center; gap:calc(var(--u)*1.5);
+  box-shadow:var(--raise);
+  transition:box-shadow .09s, transform .05s, background .09s;
+}
+.key:hover{background:var(--body-hi)}
+.key:active{box-shadow:var(--press); transform:translateY(1px); background:var(--key-lo)}
+.key:disabled{opacity:.4; cursor:not-allowed; box-shadow:var(--raise-lo)}
+.key:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.row{display:flex; gap:calc(var(--u)*2)}
+.row > *{flex:1}
+
+.lamp{
+  width:8px; height:8px; border-radius:50%; flex:none;
+  background:var(--lamp-off); box-shadow:var(--recess);
+  transition:background .5s ease, box-shadow .5s ease;
+}
+.lamp.is-on{
+  background:var(--accent); box-shadow:0 0 6px rgba(237,107,31,.6); transition:none;
+}
+
+/* switch — a recessed well with a raised active segment */
+.switch{
+  display:flex; background:var(--slot); border-radius:var(--r-key);
+  padding:2px; box-shadow:var(--recess); gap:2px;
+}
+.switch button{
+  flex:1; font-family:var(--sans); font-size:var(--t-label); letter-spacing:var(--ls-label);
+  padding:calc(var(--u)*1.5) var(--u); cursor:pointer; border:0; border-radius:3px;
+  background:transparent; color:var(--ink-3);
+}
+.switch button[aria-pressed="true"]{background:var(--key); color:var(--ink); box-shadow:var(--raise-lo)}
+.switch button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+
+/* ---- layout ---- */
+.stage{display:grid; grid-template-columns:1fr 316px; min-height:0; background:var(--rule); gap:var(--hair)}
+.screen{
+  position:relative; overflow:hidden; background:var(--win);
+  box-shadow:inset 0 3px 10px rgba(0,0,0,.55), inset 0 0 0 1px rgba(0,0,0,.5);
+}
+canvas{display:block; width:100%; height:100%; background:var(--win); cursor:crosshair; touch-action:none}
+
+.col{display:grid; grid-template-rows:auto 1fr; min-height:0; background:var(--rule); gap:var(--hair)}
+.readout .ctl-l{margin-bottom:calc(var(--u)*1.75)}
+.readout .ctl-l.warn b{color:var(--accent)}
+
+/* ---- inside the display window ---- */
+#hud{
+  position:absolute; top:calc(var(--u)*4); right:calc(var(--u)*4);
+  font-family:var(--mono); font-size:9px; letter-spacing:.1em; color:var(--win-dim);
+  text-align:right; line-height:1.8; pointer-events:none; font-variant-numeric:tabular-nums;
+}
+#hud b{font-weight:400; color:var(--win-ink)}
+#hud .warn{color:var(--accent)}
+
+#empty{
+  position:absolute; inset:0; display:grid; place-content:center; justify-items:center;
+  gap:calc(var(--u)*4); text-align:center; padding:calc(var(--u)*6);
+}
+#empty .big{
+  font-family:var(--mono); font-size:46px; line-height:.9; color:var(--win-dim);
+  font-variant-numeric:tabular-nums; letter-spacing:-.02em;
+}
+#empty p{font-family:var(--mono); font-size:10px; letter-spacing:.12em; color:var(--win-dim)}
+#empty .subcopy{font-size:9px; letter-spacing:.06em; color:var(--win-dim); line-height:1.9; font-family:var(--mono)}
+body.loaded #empty{display:none}
+
+#drop{
+  position:absolute; inset:calc(var(--u)*3); display:none; place-content:center;
+  border:var(--hair) dashed var(--accent); border-radius:4px; color:var(--accent);
+  font-family:var(--mono); font-size:10px; letter-spacing:.14em; pointer-events:none;
+}
+body.dragging #drop{display:grid}
+
+.keys{
+  display:flex; flex-wrap:wrap; gap:4px calc(var(--u)*5);
+  padding:calc(var(--u)*2.5) calc(var(--u)*5);
+  border-top:var(--hair) solid var(--rule);
+  font-size:9.5px; color:var(--ink-3);
+}
+.keys b{font-family:var(--mono); font-weight:400; color:var(--ink-2)}
+.keys .right{margin-left:auto; display:flex; align-items:center; gap:calc(var(--u)*2.5)}
+
+body.bleed{padding:0}
+body.bleed .device{border-radius:0; box-shadow:none}
+body.bleed .brow, body.bleed .col, body.bleed .keys{display:none}
+body.bleed .stage{grid-template-columns:1fr}
+body.bleed .screen{box-shadow:none}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important; animation-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+
+<div class="device">
+
+  <div class="brow">
+    <div class="mark">KP&#8211;1</div>
+    <div class="sub">cube &middot; classical map<br>milestone 1 &middot; <span id="srcname">no source</span></div>
+    <div class="switch" id="skin" style="flex:none;width:126px">
+      <button data-s="light" aria-pressed="true">light</button>
+      <button data-s="dark" aria-pressed="false">dark</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="screen" id="stagewin">
+      <canvas id="gl"></canvas>
+      <div id="hud"></div>
+      <div id="empty">
+        <div class="big">00</div>
+        <p>no source</p>
+        <button class="key" id="cam2">start camera</button>
+        <div class="subcopy">or drop a video anywhere</div>
+      </div>
+      <div id="drop">drop to load</div>
+    </div>
+
+    <div class="col">
+      <div class="tile">
+        <h2>press <em>pointer into the past</em></h2>
+        <div class="knobs">
+          <div class="dial" data-ctl="knob" data-k="depth"  data-min="1" data-max="127" data-step="1" data-def="96" data-dp="0"
+               data-hint="how many frames back the pointer presses, at its centre"></div>
+          <div class="dial" data-ctl="knob" data-k="radius" data-min="0.03" data-max="0.5" data-step="0.01" data-def="0.14"
+               data-hint="gaussian radius, as a fraction of frame height"></div>
+          <div class="dial" data-ctl="knob" data-k="decay"  data-min="0.2" data-max="10" data-step="0.1" data-def="2.5" data-dp="1"
+               data-hint="seconds for a press to relax to 1/e of its depth"></div>
+        </div>
+        <div class="note">drag on the display to press it into the past &middot; it relaxes back to the present.
+          knobs: drag vertically &middot; shift for fine &middot; double-click resets.</div>
+      </div>
+
+      <div class="tile readout">
+        <h2>cube <em id="cubeleg">not allocated</em></h2>
+        <div class="row" style="margin-bottom:calc(var(--u)*4)">
+          <button class="key" id="cam">camera</button>
+          <button class="key" id="vid">video file</button>
+        </div>
+        <input id="file" type="file" accept="video/*" hidden>
+        <div id="readout"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="keys">
+    <span><b>drag</b> press into the past</span>
+    <span><b>c</b> clear map</span>
+    <span><b>m</b> show map</span>
+    <span><b>f</b> full bleed</span>
+    <span class="right"><span id="statusline"></span><i class="lamp" id="lamp"></i></span>
+  </div>
+
+</div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ *  KP–1 — milestone 1
+ *  Webcam into a ring of N frames held as one 3D texture. Each pixel
+ *  samples the cube d frames behind the present, d from a map.
+ * ------------------------------------------------------------------ */
+
+/* ---------- dials ---------- */
+const dials = {};
+
+function buildDials(selector, map){
+  document.querySelectorAll(selector).forEach(d => {
+    const k = d.dataset.k;
+    const a = { min:d.dataset.min, max:d.dataset.max, step:d.dataset.step, def:d.dataset.def };
+    const dp = d.dataset.dp !== undefined ? +d.dataset.dp : 2;
+    d.title = d.dataset.hint || '';
+    d.className = 'knobwrap';
+    d.innerHTML =
+      `<div class="knob" id="k_${k}" tabindex="0" role="slider" aria-label="${k}"><i></i></div>` +
+      `<span>${k}</span><b id="o_${k}"></b>` +
+      `<input id="d_${k}" type="range" min="${a.min}" max="${a.max}" step="${a.step}" value="${a.def}" hidden>`;
+    const inp = d.querySelector('input'), out = d.querySelector('b');
+    map[k] = inp;
+    const knob = d.querySelector('.knob');
+    const show = () => { out.textContent = parseFloat(inp.value).toFixed(dp); paintKnob(knob, inp); };
+    inp.addEventListener('input', show);
+    wireKnob(knob, inp);
+    show();
+  });
+}
+
+/* 270 degrees of travel, starting at 225deg */
+function paintKnob(knob, inp){
+  const lo = +inp.min, hi = +inp.max;
+  const pct = (parseFloat(inp.value) - lo) / (hi - lo);
+  knob.style.setProperty('--angle', (-135 + pct*270) + 'deg');
+  knob.style.setProperty('--sweep', (pct*270) + 'deg');
+  knob.setAttribute('aria-valuenow', parseFloat(inp.value).toFixed(2));
+  knob.setAttribute('aria-valuemin', inp.min);
+  knob.setAttribute('aria-valuemax', inp.max);
+}
+
+function wireKnob(knob, inp){
+  const lo = +inp.min, hi = +inp.max, step = +inp.step;
+  const nudge = (dy, fine) => {
+    const v = parseFloat(inp.value) + dy * (hi-lo) * (fine ? 0.0015 : 0.006);
+    inp.value = Math.min(hi, Math.max(lo, Math.round(v/step)*step));
+    inp.dispatchEvent(new Event('input', {bubbles:true}));
+  };
+  let last = null;
+  knob.addEventListener('pointerdown', e => {
+    last = e.clientY; knob.setPointerCapture?.(e.pointerId); e.preventDefault();
+  });
+  knob.addEventListener('pointermove', e => {
+    if(last === null) return;
+    nudge(last - e.clientY, e.shiftKey); last = e.clientY;
+  });
+  ['pointerup','pointercancel'].forEach(t => knob.addEventListener(t, () => { last = null; }));
+  knob.addEventListener('dblclick', () => {
+    inp.value = inp.defaultValue; inp.dispatchEvent(new Event('input', {bubbles:true}));
+  });
+  knob.addEventListener('keydown', e => {
+    const d = {ArrowUp:1, ArrowRight:1, ArrowDown:-1, ArrowLeft:-1}[e.key];
+    if(!d) return;
+    e.preventDefault(); nudge(d*8, e.shiftKey);
+  });
+  knob.addEventListener('wheel', e => { e.preventDefault(); nudge(-e.deltaY*0.25, e.shiftKey); }, {passive:false});
+}
+buildDials('.dial', dials);
+
+const val = k => parseFloat(dials[k].value);
+
+/* ---------- device chrome ---------- */
+const lampEl = document.getElementById('lamp');
+
+document.getElementById('skin').addEventListener('click', e => {
+  const b = e.target.closest('button[data-s]');
+  if(!b) return;
+  document.documentElement.dataset.skin = b.dataset.s;
+  document.querySelectorAll('#skin button').forEach(x =>
+    x.setAttribute('aria-pressed', String(x.dataset.s === b.dataset.s)));
+});
+
+function toggleBleed(){ document.body.classList.toggle('bleed'); }
+
+function setStatus(msg){ document.getElementById('statusline').textContent = msg; }
+
+addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT') return;
+  if(e.key === 'f'){ e.preventDefault(); toggleBleed(); }
+  if(e.key === 'Escape'){ document.body.classList.remove('bleed'); }
+});
+
+/* ---------- boot ---------- */
+setStatus('start the camera or drop a video');
+
+</script>
+</body>
+</html>
