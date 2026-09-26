@@ -99,6 +99,21 @@ to within one cell (≤ 0.07 of frame width) across the full sweep. A test-patte
 visibly bent into the past along the motion trail. Display ran at 60 fps with the motion
 driver on. Not verified: a real hand in front of a real webcam.
 
+## Grain (branch `kp-1/grain`)
+
+This is CT–1's grain formula moved into the display shader. It's a per-pixel hash,
+re-jittered every frame and weighted toward the midtones the way film grain is. There's
+no extra pass: it's applied after the cube sample and the map overlay, and it stays out
+of the letterbox.
+
+- **`grain`** (0–0.5, default 0.12) is its strength.
+- **`size`** (1–4 screen points, default 1.5) is the size of one grain, and scales with
+  `devicePixelRatio`. That keeps retina grain from shrinking to invisible single-device-
+  pixel noise.
+
+Verified at 2× DPR: the grain is visible at the default and the frame is clean at 0.
+Display holds 60 fps and there are no GL errors.
+
 ## Verified (milestone 1)
 
 Tested in Chrome 153 headless with ANGLE Metal on an Apple M5 Max. The camera was

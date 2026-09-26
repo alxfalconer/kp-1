@@ -209,7 +209,7 @@ body{
 }
 canvas{display:block; width:100%; height:100%; background:var(--win); cursor:crosshair; touch-action:none}
 
-.col{display:grid; grid-template-rows:auto 1fr; min-height:0; background:var(--rule); gap:var(--hair)}
+.col{display:grid; grid-template-rows:auto auto 1fr; min-height:0; background:var(--rule); gap:var(--hair)}
 .readout .ctl-l{margin-bottom:calc(var(--u)*1.75)}
 .readout .ctl-l.warn b{color:var(--accent)}
 
@@ -315,6 +315,16 @@ body.bleed .screen{box-shadow:none}
           knobs: drag vertically &middot; shift for fine &middot; double-click resets.</div>
       </div>
 
+      <div class="tile">
+        <h2>look <em>whole frame</em></h2>
+        <div class="knobs">
+          <div class="dial" data-ctl="knob" data-k="grain" data-min="0" data-max="0.5" data-step="0.005" data-def="0.12"
+               data-hint="animated grain over the frame, strongest in the midtones"></div>
+          <div class="dial" data-ctl="knob" data-k="size"  data-min="1" data-max="4" data-step="0.1" data-def="1.5" data-dp="1"
+               data-hint="grain size in screen points"></div>
+        </div>
+      </div>
+
       <div class="tile readout">
         <h2>cube <em id="cubeleg">not allocated</em></h2>
         <div class="row" style="margin-bottom:calc(var(--u)*4)">
@@ -378,6 +388,10 @@ uniform float uHead;       // layer holding the present
 uniform float uN;
 uniform float uFill;       // layers written so far
 uniform vec2  uFit;        // letterbox scale
+uniform float uGrain;
+uniform float uGrainPx;    // grain cell in device pixels
+uniform float uTime;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
 void main(){
   vec2 uv = (vUV - 0.5) / uFit + 0.5;
   if(uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0){ frag = vec4(0.0,0.0,0.0,1.0); return; }
@@ -385,6 +399,13 @@ void main(){
   float z = (uHead - d + 0.5) / uN;                  // ring index; wrap R is REPEAT
   vec3 c = texture(uCube, vec3(uv, z)).rgb;
   if(uShowMap > 0.5) c = mix(c, vec3(0.93, 0.42, 0.12), 0.65 * d / (uN - 1.0));
+  if(uGrain > 0.001){                                // grain, as CT–1's final pass
+    vec2 jit = vec2(fract(uTime*7.13), fract(uTime*4.31)) * 91.0;
+    float n = hash(floor(gl_FragCoord.xy / uGrainPx) + jit);
+    float l = dot(c, vec3(0.2126,0.7152,0.0722));
+    c += (n - 0.5) * uGrain * mix(0.3, 1.0, 1.0 - abs(2.0*l - 1.0));
+  }
+  c = clamp(c, 0.0, 1.0);
   frag = vec4(c, 1.0);
 }`;
 
@@ -411,7 +432,7 @@ function program(vs, fs, names){
   return {p, u};
 }
 const cprog = program(QVERT, CFRAG, ['uSrc','uScale','uMirror']);
-const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit']);
+const dprog = program(QVERT, DFRAG, ['uCube','uMap','uShowMap','uHead','uN','uFill','uFit','uGrain','uGrainPx','uTime']);
 
 const quadVAO = gl.createVertexArray();
 gl.bindVertexArray(quadVAO);
@@ -741,6 +762,9 @@ function frame(now){
     gl.bindTexture(gl.TEXTURE_2D, mapTex);
     gl.uniform1i(dprog.u.uMap, 1);
     gl.uniform1f(dprog.u.uShowMap, showMap ? 1 : 0);
+    gl.uniform1f(dprog.u.uGrain, val('grain'));
+    gl.uniform1f(dprog.u.uGrainPx, Math.max(1, val('size') * devicePixelRatio));
+    gl.uniform1f(dprog.u.uTime, now / 1000);
     gl.uniform1f(dprog.u.uHead, cube.head);
     gl.uniform1f(dprog.u.uN, N);
     gl.uniform1f(dprog.u.uFill, cube.fill);
