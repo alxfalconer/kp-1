@@ -158,6 +158,32 @@ Checked on single-pixel inputs:
 and macOS capped every page at 30 fps, blank pages included. The blur held that 30 fps.
 Whether it holds 60 still needs a check on mains power.
 
+## Quantum blur by hand (branch `kp-1/qblur-hands`)
+
+The quantum blur switch has three settings: **off**, **whole frame** and **hands**. `q`
+cycles through them. In **hands**, the blur shows only where the camera sees motion.
+
+- **The mask.** It's a second 16×16 map, `bmask`, built from the same `motion.level` that
+  presses time: `bmask = max(bmask · e^(−dt/decay), level)`. So the blur follows your
+  hands and fades on the `decay` knob once they stop. The display mixes clean and blurred
+  pixels by `clamp(mask · 1.5, 0, 1)`, bilinear across cells.
+- **The simulation still runs on the whole frame.** Rotations on qubits act globally, and
+  there's no per-pixel angle. So the masked region shows the full-frame quantum blur,
+  echoes included, while everything outside it shows the clean picture. The
+  alternative is to encode only the masked pixels into the state. That makes the hand
+  region's light spread over the whole frame, so it wouldn't stay local; not built.
+- **Cost.** When the mask is empty (peak ≤ 0.01), no frames are sent to the worker, so a
+  still scene costs nothing.
+- **Auto-start.** Choosing **hands** starts the motion camera if it's off.
+- **hands press time.** A new toggle, on by default. Turn it off and hands only blur,
+  without pushing the picture into the past. The pointer still presses time.
+
+Verified with the fake camera's sweeping bar and a test clip:
+- The mask's peak tracked the bar to within one cell, with a decaying trail behind it.
+- The time map stayed at 0 with "hands press time" off.
+- The screenshot shows blur only on the moving side.
+- After motion stopped, the mask fell to 0.016 and the picture returned clean.
+
 ## Verified (milestone 1)
 
 Tested in Chrome 153 headless with ANGLE Metal on an Apple M5 Max. The camera was
